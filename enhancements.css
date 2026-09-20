@@ -1,0 +1,9 @@
+.blank-group { border: 0; padding: 0; margin: 0 0 20px; display: grid; gap: 8px; }
+.blank-group legend { font-weight: 700; font-size: 14px; margin-bottom: 8px; }
+.numeric-answer { display: block; width: min(100%, 320px); border: 1px solid #cfd9d9; border-radius: 9px; padding: 12px; margin: 10px 0; }
+.numeric-answer:focus { outline: 3px solid #9ecbc6; }
+.history-chart { width: 100%; max-height: 240px; background: #f7f8f5; border-radius: 10px; padding: 12px; }
+.history-list { display: grid; }
+.history-row { display: grid; grid-template-columns: 2fr repeat(3, 1fr) auto; gap: 10px; padding: 15px 0; border-top: 1px solid #e3e7e6; align-items: center; }
+.history-row:first-child { border-top: 0; }
+@media (max-width: 600px) { .history-row { grid-template-columns: repeat(2, 1fr); } }
