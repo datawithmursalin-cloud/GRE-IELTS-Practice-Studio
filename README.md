@@ -1,16 +1,20 @@
-# GRE Practice Studio
+# GRE & IELTS Practice Studio
 
-A local-first, unofficial GRE-style practice app. It uses original questions, timed sections, simple section-level difficulty routing, explanations, and score history. No account, API key, or package installation is required.
+A combined, unofficial practice app. GRE uses original questions, timed sections, simple section-level difficulty routing and explanations. IELTS Reading and Listening use the locally extracted study archive for answer review and raw scores; Writing Tasks 1 and 2 provide prompts and model responses for self-review. The app has two profiles, Mursalin and Ramisa, and requires the publisher password before either can practice.
 
 ## Run locally
 
-Requires Node.js 20 or newer.
+Requires Node.js 20 or newer and the supplied IELTS archive for local IELTS content.
+
+1. The archive has been extracted to `local-ielts/IELTS-Study-main/`. This directory and the zip are Git-ignored because the included IELTS Liz content is not licensed for redistribution. If moving to another computer, extract `IELTS-Study-main.zip` to `local-ielts/` there.
+2. Set `STUDIO_PASSWORD` or create a `.studio-password` file containing the publisher password. The local file is Git-ignored.
+3. Run:
 
 ```sh
 npm start
 ```
 
-Open <http://localhost:3000>. Run `npm test` for the automated checks.
+Open <http://localhost:3000>. Select Mursalin or Ramisa and enter the publisher password. After login, choose GRE or IELTS. Run `npm test` for automated checks. The server listens on `127.0.0.1` by default, so it is accessible only from the same computer unless `HOST` is explicitly changed.
 
 ## Test structure and question library
 
@@ -24,14 +28,18 @@ Current format checked against the ETS [test structure](https://www.ets.org/gre/
 
 ## Scores and privacy
 
-Each completed session adds raw Verbal, Quant, and total accuracy to Score History. The history includes a simple progression chart and can be exported as JSON or imported from a prior export. Your active session and history stay in browser local storage; clearing site data deletes them unless you export a backup. Different browsers/devices do **not** sync automatically. The essay text stays in the active session's local browser storage and is **not** included in the history export.
+Each completed GRE session adds raw Verbal and Quant results; IELTS Reading and Listening add raw question accuracy, and Writing logs only a word count. These are not official scaled scores or bands. Score history and active GRE sessions are stored in separate browser-storage keys for Mursalin and Ramisa on this device. They do not sync between browsers or devices; clearing site data removes them unless you export a backup. Earlier GRE-only history in this browser can be imported from the history page. IELTS writing drafts disappear when you leave an exercise.
 
-## GitHub Pages
+The shared four-digit password is a convenience gate, not strong individual authentication: either person who knows it can select either profile. Set it through `STUDIO_PASSWORD` or put it in a local `.studio-password` file, which is Git-ignored. Browser storage is accessible to someone with access to the same browser/device. Do not use this setup for sensitive information or expose the server to the public internet without stronger authentication and a server-side database. To add a user later, update the profile allowlist in `server.mjs` and the selector in `app.mjs`.
 
-This is a static site: `index.html` and its local assets work on GitHub Pages without a build step. To put it in your own private or public GitHub repository:
+## Backend question bank and publication
 
-1. Create a new GitHub repository and push this project folder. Check `git status` before committing. The `.gitignore` deliberately excludes `GRE Books/`, so purchased/copyrighted PDFs are not uploaded.
-2. In the repository's **Settings → Pages**, choose **Deploy from a branch**, select your branch, and use the **/(root)** folder.
-3. Open the Pages URL GitHub provides. Export history from the local app and import it on the Pages site if you want to transfer prior scores; these are different browser origins.
+The bank is server-side only; the app has no library browser or bulk-data route. The browser receives one GRE section or one IELTS exercise at a time, without answers or explanations until submission. The authored GRE bank has 43 Verbal questions, 4 Issue prompts, and 8 parameterized Quant generator patterns (up to 299 generated IDs per difficulty). The locally extracted IELTS archive has 169 Reading and 241 Listening questions across 73 exercises, plus 20 Writing prompts. From the 2024 Manhattan Prep EPUB, `scripts/extract_5lb.py` checks option counts and answer-key matches, and currently loads **236 additional Verbal items locally** (48 one-blank Text Completion, 138 Sentence Equivalence, and 50 argument-based Reading Comprehension). It skips 87 Verbal items that did not meet those checks. `scripts/extract_5lb_quant.py` adds **107 text-only Quant multiple-choice items** from 18 math chapters after checking five readable choices and a single-letter answer key; figure-, table-, and image-dependent questions are excluded. These are conservative, automated extractions, not claims of human editorial review or a complete extraction of the book's advertised 1,400+ problems. Run both scripts after restoring the ignored EPUB extraction; they require `beautifulsoup4`. A book's publication date does not mean every question reflects the current exam format.
 
-The books in `GRE Books/` were used only to check question types and topical coverage. Do not commit or redistribute their original questions or PDFs without permission. Several ETS books in the folder are older editions (for example, the official Verbal and Quant practice-question PDFs carry 2014 copyright notices), so their descriptions of timing and the retired Argument essay should not override the current ETS website.
+For a public GitHub deployment, add only original questions or material with explicit redistribution permission. The IELTS Liz dataset, Manhattan Prep book, and its extracted question bank are kept outside Git. Do not copy them into public assets or treat generated numeric variants as independently written questions. A future public question pipeline should record provenance, license, review date, topic, difficulty, correct answer, explanation, and validation status for each item before publication.
+
+## Hosting and content rights
+
+The local Node server handles the password session, serves individual exercises, and grades submissions. It does not expose raw bank files. This version does not work as a stand-alone GitHub Pages deployment. Do not publish the IELTS data, screenshots, linked media, or extracted Electron source without permission from the rights holders. A public deployment would need licensed content, stronger authentication, and server-side score storage.
+
+The books in `GRE Books/` were used only to check question types and topical coverage. Do not commit or redistribute their original questions or PDFs without permission. Several ETS books are older editions, so their timing and retired Argument essay descriptions should not override current ETS information. This tool is independent of ETS and the official IELTS organizations. The archive's `THIRD_PARTY_CONTENT.md` has more on IELTS Liz rights and attribution.

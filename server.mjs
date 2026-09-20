@@ -1,15 +1,106 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
+import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { makePlan, makeQuestions, sectionScore, isAnswerCorrect } from './engine.mjs';
+import { addPrivateVerbal, addPrivateQuant } from './questions.mjs';
 
 const root = process.cwd();
 const port = Number(process.env.PORT || 3000);
-const types = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.mjs': 'text/javascript', '.svg': 'image/svg+xml' };
-const publicPaths = new Set(['/index.html','/styles.css','/enhancements.css','/app.mjs','/engine.mjs','/questions.mjs','/history.mjs']);
+const host = process.env.HOST || '127.0.0.1';
+const password = process.env.STUDIO_PASSWORD || (await readFile(resolve(root,'.studio-password'),'utf8').catch(()=>'')).trim();
+if (!password) throw Error('Set STUDIO_PASSWORD or create a local .studio-password file before starting the studio.');
+const users = new Map([['mursalin','Mursalin'],['ramisa','Ramisa']]);
+const sessions = new Map();
+const types = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json', '.svg': 'image/svg+xml' };
+const publicPaths = new Set(['/index.html','/styles.css','/enhancements.css','/app.mjs','/history.mjs','/ielts.mjs']);
+const ieltsPaths = Object.fromEntries(['reading','listening','writing1','writing2'].map((name,i)=>[name,resolve(root,`local-ielts/IELTS-Study-main/data/${['reading/exercises','listening/exercises','writing/task1','writing/task2'][i]}.json`)]));
+const privateGrePath = resolve(root, 'local-gre/manhattan-5lb-checked.json');
+const privateQuantPath = resolve(root, 'local-gre/manhattan-5lb-quant-checked.json');
+const ieltsData = {};
+for (const [kind,path] of Object.entries(ieltsPaths)) {
+  try { ieltsData[kind]=JSON.parse(await readFile(path,'utf8')); } catch { ieltsData[kind]=[]; }
+}
+try {const bank=JSON.parse(await readFile(privateGrePath,'utf8'));if(bank.format==='private-gre-bank-v1')addPrivateVerbal(bank.items);} catch {}
+try {const bank=JSON.parse(await readFile(privateQuantPath,'utf8'));if(bank.format==='private-gre-quant-bank-v1')addPrivateQuant(bank.items);} catch {}
+
+const json = (response,status,data,headers={}) => response.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store',...headers}).end(JSON.stringify(data));
+const cookie = request => request.headers.cookie?.split(';').map(part=>part.trim()).find(part=>part.startsWith('studio_session='))?.slice(15);
+const session = request => {const token=cookie(request), active=token && sessions.get(token);if(!active || active.expires<Date.now()){if(token)sessions.delete(token);return null;}return active;};
+const passwordMatches = value => {
+  const a=Buffer.from(String(value||'')), b=Buffer.from(password);
+  return a.length===b.length && timingSafeEqual(a,b);
+};
+const bodyJson = async request => {let body='';for await(const chunk of request){body+=chunk;if(body.length>65536)throw Error('Request too large');}return JSON.parse(body);};
+const publicQuestion = q => {const {answer,explanation,origin,sourceId,...publicFields}=q;return {...publicFields,multiple:Array.isArray(answer)&&!q.blanks};};
+const gradeText = (expected,value) => {
+  const normalize = input => String(input??'').trim().toLowerCase().replace(/\s+/g,' ').replace(/[.,]+$/,'');
+  if (!normalize(value)) return false;
+  if (/^[a-z](,\s*[a-z])+$/i.test(String(expected))) return normalize(value).split(/\s*,\s*/).sort().join(',')===normalize(expected).split(/\s*,\s*/).sort().join(',');
+  return normalize(value)===normalize(expected);
+};
+const validModes = new Set(['full','noEssay','verbalOnly','quantOnly','diagnostic','custom']);
+const activeGre = (active,id) => active?.greSessions?.get(id);
 
 createServer(async (request, response) => {
   const pathname = new URL(request.url, 'http://localhost').pathname;
   const route = pathname === '/' ? '/index.html' : pathname;
+  if (route==='/api/session' && request.method==='GET') return json(response,200,{user:session(request)?.user||null});
+  if (route==='/api/login' && request.method==='POST') {
+    try {
+      const payload=await bodyJson(request), id=String(payload.user||'').toLowerCase();
+      if (!users.has(id) || !passwordMatches(payload.password)) return json(response,401,{error:'Invalid profile or password.'});
+      const token=randomBytes(32).toString('hex');
+      const user={id,name:users.get(id)};
+      sessions.set(token,{user,expires:Date.now()+12*60*60*1000,greSessions:new Map()});
+      return json(response,200,{user},{'Set-Cookie':`studio_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200`});
+    } catch {return json(response,400,{error:'Invalid login request.'});}
+  }
+  if (route==='/api/logout' && request.method==='POST') {const token=cookie(request);if(token)sessions.delete(token);return json(response,200,{user:null},{'Set-Cookie':'studio_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'});}
+  if (route.startsWith('/api/gre/') || route.startsWith('/api/ielts/')) {
+    const active=session(request);
+    if(!active)return json(response,401,{error:'Sign in to practice.'});
+    try {
+      if(route==='/api/gre/start' && request.method==='POST') {
+        const {mode,count}=await bodyJson(request);
+        if(!validModes.has(mode))return json(response,400,{error:'Invalid test mode.'});
+        const id=randomUUID(), plan=makePlan(mode,count);
+        active.greSessions.set(id,{plan,completed:[],sections:new Map()});
+        return json(response,200,{id,plan});
+      }
+      if(route==='/api/gre/section' && request.method==='POST') {
+        const {id,index}=await bodyJson(request), test=activeGre(active,id);
+        if(!test || !Number.isInteger(index) || index!==test.completed.length || !test.plan[index])return json(response,400,{error:'Practice session unavailable. Start a new test.'});
+        if(!test.sections.has(index))test.sections.set(index,{...test.plan[index],questions:makeQuestions(test.plan[index],test.completed)});
+        const section=test.sections.get(index);
+        return json(response,200,{...test.plan[index],questions:section.questions.map(publicQuestion)});
+      }
+      if(route==='/api/gre/submit' && request.method==='POST') {
+        const {id,index,answers}=await bodyJson(request), test=activeGre(active,id), section=test?.sections.get(index);
+        if(!section || index!==test.completed.length || !answers || typeof answers!=='object')return json(response,400,{error:'Practice section unavailable. Start a new test.'});
+        section.answers=answers;
+        const score=section.kind==='essay'?{correct:0,total:0}:sectionScore(section);
+        const review=section.questions.map((q,i)=>({correct:section.kind==='essay'?null:isAnswerCorrect(q,answers[i]),answer:q.answer,explanation:q.explanation||''}));
+        test.completed.push(section);test.sections.delete(index);
+        return json(response,200,{score,review});
+      }
+      if(route==='/api/ielts/exercise' && request.method==='GET') {
+        const params=new URL(request.url,'http://localhost').searchParams,kind=params.get('category'),id=params.get('id');
+        const entries=ieltsData[kind],item=id?entries?.find((entry,i)=>(entry.id||String(i))===id):entries?.[Math.floor(Math.random()*entries.length)];
+        if(!item)return json(response,404,{error:'Exercise not found.'});
+        const {questions,transcript,model_answer,key_vocab,key_phrases,...publicFields}=item;
+        return json(response,200,{...publicFields,id:item.id||String(entries.indexOf(item)),questions:questions?.map(q=>{const {answer,explanation,...fields}=q;return {...fields,optionValue:q.options?.length && !/^[a-z]$/i.test(String(answer).trim())?'text':'letter'};})||[]});
+      }
+      if(route==='/api/ielts/submit' && request.method==='POST') {
+        const {category,id,answers}=await bodyJson(request);
+        const item=ieltsData[category]?.find((entry,i)=>(entry.id||String(i))===id);
+        if(!item)return json(response,404,{error:'Exercise not found.'});
+        const review=(item.questions||[]).map((q,i)=>({correct:gradeText(q.answer,answers?.[i]),answer:q.answer,explanation:q.explanation||''}));
+        return json(response,200,{correct:review.filter(q=>q.correct).length,total:review.length,review,transcript:item.transcript||'',modelAnswer:item.model_answer||''});
+      }
+      return json(response,404,{error:'Not found.'});
+    } catch {return json(response,400,{error:'Invalid practice request.'});}
+  }
   if (!publicPaths.has(route)) {
     response.writeHead(404).end('Not found');
     return;
@@ -21,4 +112,4 @@ createServer(async (request, response) => {
   } catch {
     response.writeHead(404).end('Not found');
   }
-}).listen(port, () => console.log(`GRE practice app: http://localhost:${port}`));
+}).listen(port, host, () => console.log(`GRE & IELTS Practice Studio: http://${host}:${port}`));

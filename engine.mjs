@@ -1,4 +1,4 @@
-import { verbal, issues } from './questions.mjs';
+import { verbal, issues, privateQuant } from './questions.mjs';
 
 export const FULL_SECTIONS = [
   {kind:'essay',label:'Analytical Writing',minutes:30,count:1},
@@ -89,9 +89,12 @@ function options(answer, step = 1) {
 const comparisonOptions = ['Quantity A is greater','Quantity B is greater','The two quantities are equal','The relationship cannot be determined'];
 
 export function makeQuant(count, level = 'medium', used = [], random = Math.random) {
+  const availableBook = privateQuant.map((q,i)=>({...q,id:`bq${i}`})).filter(q=>!used.includes(q.id));
+  const bookCount = Math.min(availableBook.length,Math.ceil(count*(level==='medium'?.5:.25)));
+  const bookQuestions = shuffle(availableBook,random).slice(0,bookCount);
   const made = [];
   let n = 1;
-  while (made.length < count && n < 300) {
+  while (made.length < count-bookCount && n < 300) {
     const id = `q${n}`;
     if (!used.includes(id)) {
       const d = level === 'hard' ? 3 : level === 'easy' ? 1 : 2;
@@ -144,7 +147,7 @@ export function makeQuant(count, level = 'medium', used = [], random = Math.rand
     }
     n++;
   }
-  return shuffle(made, random);
+  return shuffle([...made,...bookQuestions], random);
 }
 
 export function makeQuestions(section, history = [], random = Math.random) {

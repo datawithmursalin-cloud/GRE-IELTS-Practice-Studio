@@ -45,6 +45,34 @@ export const verbal = [
   {level:'hard',type:'Text completion',topic:'Logic',prompt:'The archive had long been considered ___ because many records were missing. A newly discovered catalog did not make it ___, but it did render several earlier conclusions less ___ than critics had assumed.',blanks:[['complete','fragmentary','redundant'],['exhaustive','irrelevant','inaccessible'],['tenable','speculative','precise']],answer:[1,0,1],explanation:'The archive was fragmentary; the catalog did not make it exhaustive, but it made some conclusions less speculative.'}
 ];
 
+export function addPrivateVerbal(items) {
+  if (!Array.isArray(items)) return 0;
+  const existing=new Set(verbal.map(item=>item.sourceId).filter(Boolean));
+  let added=0;
+  for(const item of items) {
+    if (!item || typeof item.sourceId!=='string' || existing.has(item.sourceId) || !['Text completion','Sentence equivalence','Reading comprehension'].includes(item.type) || !Array.isArray(item.options) || !item.options.every(option=>typeof option==='string') || !item.prompt || !item.explanation || !item.origin || item.type==='Reading comprehension' && !item.passage) continue;
+    const valid=Array.isArray(item.answer) ? item.answer.length===2 && item.answer.every(n=>Number.isInteger(n)&&n>=0&&n<item.options.length) : Number.isInteger(item.answer)&&item.answer>=0&&item.answer<item.options.length;
+    if(!valid)continue;
+    verbal.push({...item});existing.add(item.sourceId);added++;
+  }
+  return added;
+}
+
+export const privateQuant = [];
+
+export function addPrivateQuant(items) {
+  if (!Array.isArray(items)) return 0;
+  const existing = new Set(privateQuant.map(item => item.sourceId));
+  let added = 0;
+  for (const item of items) {
+    if (!item || typeof item.sourceId !== 'string' || existing.has(item.sourceId) || item.type !== 'Multiple choice' || !item.prompt || !item.topic || !item.explanation || !item.origin || !Array.isArray(item.options) || item.options.length !== 5 || !item.options.every(option => typeof option === 'string' && option.trim()) || new Set(item.options).size !== 5 || !Number.isInteger(item.answer) || item.answer < 0 || item.answer >= 5) continue;
+    privateQuant.push({...item});
+    existing.add(item.sourceId);
+    added++;
+  }
+  return added;
+}
+
 export const issues = [
   'Public funding for research should favor projects with immediate practical benefits over projects driven mainly by curiosity.',
   'The best way for a university to prepare students for an uncertain future is to require them to study fields outside their major.',

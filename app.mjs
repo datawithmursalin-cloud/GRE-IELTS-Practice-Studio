@@ -1,18 +1,31 @@
-import { makePlan, makeQuestions, sectionScore, recommendation, chooseLevel, isAnswerCorrect } from './engine.mjs';
 import { makeRecord, mergeRecords, accuracy } from './history.mjs';
+import { showIelts } from './ielts.mjs';
 
 const mount = document.querySelector('#app');
 const STORAGE = 'gre-practice-studio-v1';
 const HISTORY = 'gre-practice-history-v1';
-let state;
-try { state = JSON.parse(localStorage.getItem(STORAGE) || 'null'); } catch { state = null; }
-if (!state || !Array.isArray(state.plan)) state = {screen:'home',plan:[],completed:[],current:null,index:0,mode:null};
-let records;
-try { records = mergeRecords([],JSON.parse(localStorage.getItem(HISTORY)||'[]')); } catch { records = []; }
+const emptyState = () => ({screen:'home',plan:[],completed:[],current:null,index:0,mode:null});
+let state = emptyState(), records = [], user = null, accountReady = false, accountError = '', reviewDetails=[];
+const sectionScore = s => s?.score || {correct:0,total:s?.questions?.length||0};
+const chooseLevel = s => s && sectionScore(s).total && sectionScore(s).correct/sectionScore(s).total>=.65?'hard':'medium';
+const recommendation = completed => {const scored=completed.filter(s=>s.kind!=='essay');const total=scored.reduce((n,s)=>n+sectionScore(s).total,0),correct=scored.reduce((n,s)=>n+sectionScore(s).correct,0);return !total?'Try a timed section to establish a baseline.':correct/total<.65?'Focus on missed topics, then try another timed section.':'Keep practicing under timed conditions to build consistency.';};
+async function api(path, options={}) {const response=await fetch(path,{...options,headers:{'Content-Type':'application/json',...options.headers}});const data=await response.json();if(!response.ok)throw Error(data.error||'Practice request failed.');return data;}
 
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const save = () => localStorage.setItem(STORAGE, JSON.stringify(state));
-const saveHistory = () => localStorage.setItem(HISTORY,JSON.stringify(records));
+const save = () => {if(user) localStorage.setItem(`${STORAGE}:${user.id}`, JSON.stringify(state));};
+const saveHistory = () => {if(user)localStorage.setItem(`${HISTORY}:${user.id}`,JSON.stringify(records));};
+const reportError = error => {accountError=error?.message || String(error);if(state.screen!=='ielts')render();};
+async function setUser(nextUser, {afterLogin=false}={}) {
+  user=nextUser; accountReady=true;accountError='';records=[];state=emptyState();
+  if(user){
+    try{const saved=JSON.parse(localStorage.getItem(`${STORAGE}:${user.id}`)||'null');if(saved && Array.isArray(saved.plan) && ![saved.current,...(saved.completed||[])].some(s=>s?.questions?.some(q=>'answer' in q)))state=saved;else save();}catch{}
+    try{records=mergeRecords([],JSON.parse(localStorage.getItem(`${HISTORY}:${user.id}`)||'[]'));}catch{}
+    if(state.screen==='library')state.screen='home';
+    if(afterLogin){state.screen='home';save();}
+  }
+  render();
+}
+fetch('/api/session').then(response=>response.json()).then(data=>setUser(data.user)).catch(error=>{accountReady=true;reportError(error);});
 const section = () => state.current;
 const answerText = (q, chosen) => {
   if (chosen == null || Array.isArray(chosen) && !chosen.length) return 'Not answered';
@@ -20,40 +33,42 @@ const answerText = (q, chosen) => {
   if (q.blanks) return chosen.map((option,i)=>q.blanks[i][option]||'—').join(' / ');
   return (Array.isArray(chosen) ? chosen : [chosen]).map(i => q.options[i]).join(' and ');
 };
-const isCorrect = isAnswerCorrect;
 const timeText = seconds => `${Math.floor(seconds/60).toString().padStart(2,'0')}:${(seconds%60).toString().padStart(2,'0')}`;
 const remaining = () => Math.max(0,Math.ceil((section().deadline - Date.now()) / 1000));
 
 function home() {
+  mount.innerHTML=`<div class="eyebrow">Welcome back, ${escape(user.name)}</div><h1>What are you preparing for?</h1><p class="muted">Choose a test to practice. Your score history is kept under your profile on this browser.</p><div class="exam-chooser"><article class="chooser-card gre"><div class="eyebrow">Graduate admissions</div><h2>GRE practice</h2><p>Timed Verbal and Quant sections, a full-length simulation, and detailed review.</p><button class="btn" data-action="gre">Choose GRE</button></article><article class="chooser-card ielts"><div class="eyebrow">English proficiency</div><h2>IELTS practice</h2><p>Reading, Listening, and Writing exercises from the local study archive.</p><button class="btn" data-action="ielts">Choose IELTS</button></article></div><div class="btn-row"><button class="btn secondary" data-action="history">View ${escape(user.name)}’s score history${records.length?` (${records.length})`:''}</button></div>`;
+}
+
+function greHome() {
   const resume = Boolean(state.current);
-  mount.innerHTML = `<div class="hero"><div><div class="eyebrow">Your next practice session starts here</div><h1>Prepare with purpose.</h1><p>Practice the current GRE format with timed sections, section-adaptive difficulty, clear explanations, and a thoughtful review of what to work on next.</p>${resume ? '<button class="btn" data-action="resume">Resume session</button>' : ''} <button class="btn secondary" data-action="history">Score history${records.length?` (${records.length})`:''}</button></div><div class="hero-art"><div class="art-label">A focused path forward</div><div class="art-number">01<span style="font-size:36px;color:#d6a85e"> / 05</span></div><div class="art-caption">One section at a time. Your pace, your progress.</div></div></div>
-  <div class="eyebrow">Choose your session</div><div class="grid">
+  mount.innerHTML = `<div class="hero"><div><div class="eyebrow">GRE & IELTS · One place to improve</div><h1>Prepare with purpose.</h1><p>Practice timed GRE sections and IELTS skills, review your answers, and track your progress across sessions.</p>${resume ? '<button class="btn" data-action="resume">Resume GRE session</button>' : ''} <button class="btn secondary" data-action="history">Score history${records.length?` (${records.length})`:''}</button></div><div class="hero-art"><div class="art-label">Two exams · One studio</div><div class="art-number">GRE<span style="font-size:36px;color:#d6a85e"> + </span>IELTS</div><div class="art-caption">One section at a time. Your pace, your progress.</div></div></div>
+  <div class="path-card"><div><div class="eyebrow">Explore IELTS</div><h2>Reading, Listening & Writing</h2><p>Work through the study archive with answer review, raw scores, and writing self-review.</p></div><button class="btn" data-action="ielts">Open IELTS practice</button></div>
+  <div class="btn-row"><button class="btn ghost" data-action="home">← Choose test</button></div><div class="eyebrow top-gap">Choose a GRE session</div><div class="grid">
   <article class="card"><div class="card-num">01 · Exam simulation</div><span class="pill">1 hour 58 minutes</span><h3>Full-length test</h3><p>One Issue essay, then 2 Verbal and 2 Quant sections. 54 scored questions in total.</p><button class="btn" data-start="full">Start full test</button></article>
   <article class="card"><div class="card-num">02 · Focused verbal</div><span class="pill">41 minutes · 27 questions</span><h3>Verbal only</h3><p>Two timed Verbal sections. The second section adapts to your first-section performance.</p><button class="btn" data-start="verbalOnly">Start Verbal practice</button></article>
   <article class="card"><div class="card-num">03 · Focused quant</div><span class="pill">47 minutes · 27 questions</span><h3>Quant only</h3><p>Two timed Quant sections with an adaptive second stage and all current question formats.</p><button class="btn" data-start="quantOnly">Start Quant practice</button></article>
   <article class="card"><div class="card-num">04 · Focused endurance</div><span class="pill">88 minutes</span><h3>Verbal + Quant</h3><p>The four scored sections with the same timing and adaptive second stages, without the essay.</p><button class="btn" data-start="noEssay">Start scored sections</button></article>
   <article class="card"><div class="card-num">05 · Quick check-in</div><span class="pill">17 minutes</span><h3>Diagnostic</h3><p>Five Verbal and five Quant questions for a fast read on strengths and gaps.</p><button class="btn" data-start="diagnostic">Start diagnostic</button></article></div>
   <div class="panel top-gap"><h3>Build a shorter practice session</h3><p class="muted small">Choose 10–40 questions across Verbal and Quant. This is a drill, not a GRE-format simulation.</p><div class="field"><label for="count">Question count</label><select id="count">${[10,20,30,40].map(n=>`<option value="${n}" ${n===20?'selected':''}>${n} questions</option>`).join('')}</select></div><button class="btn secondary" data-start="custom">Start custom practice</button></div>
-  <p class="muted small top-gap">Original, unofficial practice questions. Adaptive routing here is a simple practice approximation; neither scores nor essay feedback are official GRE scores.</p>`;
+  <p class="muted small top-gap">Includes original practice and, on this local server, private book-derived Verbal items. Adaptive routing and scores are unofficial approximations.</p>`;
 }
 
-function start(mode) {
+async function start(mode) {
   const count = Number(document.querySelector('#count')?.value || 20);
-  state = {id:crypto.randomUUID(),startedAt:new Date().toISOString(),screen:'exam',mode,plan:makePlan(mode,count),completed:[],current:null,index:0};
-  nextSection();
+  try {const {id,plan}=await api('/api/gre/start',{method:'POST',body:JSON.stringify({mode,count})});state={id,startedAt:new Date().toISOString(),screen:'gre',mode,plan,completed:[],current:null,index:0};await nextSection();}catch(error){state.screen='gre';reportError(error);}
 }
 
-function nextSection() {
+async function nextSection() {
   const config = state.plan[state.index];
   if (!config) {state.screen='results';state.current=null;state.completedAt=new Date().toISOString();save();render();return;}
-  state.current = {...config,questions:makeQuestions(config,state.completed),answers:{},marked:[],position:0,essay:'',deadline:Date.now()+config.minutes*60000};
-  state.screen='exam';save();render();
+  try {const data=await api('/api/gre/section',{method:'POST',body:JSON.stringify({id:state.id,index:state.index})});state.current={...data,answers:{},marked:[],position:0,essay:'',deadline:Date.now()+config.minutes*60000};state.screen='exam';save();render();}catch(error){state.screen='gre';reportError(error);}
 }
 
 function questionInput(q, chosen) {
   if (q.blanks) return q.blanks.map((choices,blank)=>`<fieldset class="blank-group"><legend>Blank ${blank+1}</legend>${choices.map((option,i)=>`<label class="choice ${chosen?.[blank]===i?'selected':''}"><input type="radio" name="blank-${blank}" data-blank="${blank}" value="${i}" ${chosen?.[blank]===i?'checked':''}><span>${escape(option)}</span></label>`).join('')}</fieldset>`).join('');
   if (q.type==='Numeric Entry') return `<label class="side-label" for="numeric-answer">Your answer</label><input id="numeric-answer" class="numeric-answer" inputmode="decimal" autocomplete="off" placeholder="Enter a number or fraction" value="${escape(chosen ?? '')}"><p class="muted small">Fractions such as 3/4 are accepted.</p>`;
-  const multi=Array.isArray(q.answer);
+  const multi=q.multiple;
   return `<div class="choices">${q.options.map((option,i)=>`<label class="choice ${selected(chosen,i)?'selected':''}"><input type="${multi?'checkbox':'radio'}" name="answer" value="${i}" ${selected(chosen,i)?'checked':''}><span>${escape(option)}</span></label>`).join('')}</div>${multi?`<p class="muted small">${q.type==='Sentence equivalence'?'Select exactly two answers.':'Select all answers that apply.'} No partial credit.</p>`:''}`;
 }
 
@@ -70,23 +85,21 @@ function wordCount(value) {return value.trim()?value.trim().split(/\s+/).length:
 function selected(chosen,index) {return Array.isArray(chosen)?chosen.includes(index):chosen===index;}
 function hasAnswer(q,chosen) {return q.blanks ? Array.isArray(chosen)&&q.blanks.every((_,i)=>Number.isInteger(chosen[i])) : q.type==='Numeric Entry' ? String(chosen??'').trim()!=='' : Array.isArray(chosen) ? chosen.length>0 : chosen!=null;}
 
-function finish() {
+async function finish() {
   if (!state.current) return;
-  state.completed.push(state.current);
-  state.current=null;
-  state.screen='review';
-  save();render();
+  const current=state.current;state.current=null;
+  try {const result=await api('/api/gre/submit',{method:'POST',body:JSON.stringify({id:state.id,index:state.index,answers:current.answers})});reviewDetails=result.review;state.completed.push({...current,score:result.score});state.screen='review';save();render();}catch(error){state.screen='gre';reportError(error);}
 }
 
 function review() {
   const s=state.completed.at(-1), essay=s.kind==='essay', score=sectionScore(s);
   const next=state.plan[state.index+1];
   const topicMisses={};
-  if (!essay) s.questions.forEach((q,i)=>{if(!isCorrect(q,s.answers[i]))topicMisses[q.topic]=(topicMisses[q.topic]||0)+1;});
+  if (!essay) s.questions.forEach((q,i)=>{if(reviewDetails[i] && !reviewDetails[i].correct)topicMisses[q.topic]=(topicMisses[q.topic]||0)+1;});
   const top=Object.entries(topicMisses).sort((a,b)=>b[1]-a[1]).slice(0,3);
   mount.innerHTML=`<div class="eyebrow">Section complete</div><h1>${escape(s.label)}</h1><p class="muted">${essay?'Review your response with the criteria below. Automatic essay scoring is intentionally not provided.':`You answered ${score.correct} of ${score.total} correctly. Review each item before moving on.`}</p>
   ${essay?`<div class="panel"><h3>Analytical Writing self-review</h3><p class="muted small">Use the official 0–6 scale as a guide, not a machine-generated score. Consider the strength of your position, development, organization, and language control.</p><div class="rubric"><div><strong>Position</strong><br>Did you address the issue and qualify your view when needed?</div><div><strong>Development</strong><br>Are reasons specific, relevant, and supported by examples?</div><div><strong>Organization</strong><br>Does the argument progress logically, with useful transitions?</div><div><strong>Language</strong><br>Is the prose clear, controlled, and precise?</div></div><details class="review-item"><summary>Show my essay (${wordCount(s.essay)} words)</summary><p style="white-space:pre-wrap">${escape(s.essay||'No response entered.')}</p></details></div>`:
-  `<div class="stat-row"><div class="stat"><strong>${score.correct}/${score.total}</strong><span>Correct</span></div><div class="stat"><strong>${Math.round(score.correct/score.total*100)}%</strong><span>Accuracy</span></div><div class="stat"><strong>${s.stage===2?escape(chooseLevel(state.completed.find(x=>x.kind===s.kind&&x.stage===1))):'Medium'}</strong><span>Practice difficulty</span></div></div><div class="panel"><h3>What to work on</h3><p>${top.length?`Your biggest opportunities: ${top.map(([name,n])=>`${escape(name)} (${n} missed)`).join(', ')}.`:'No missed questions in this section—keep building consistency.'}</p>${s.questions.map((q,i)=>`<details class="review-item"><summary class="${isCorrect(q,s.answers[i])?'correct':'incorrect'}">${i+1}. ${isCorrect(q,s.answers[i])?'Correct':'Review'} · ${escape(q.topic)} — ${escape(q.prompt)}</summary><p>Your answer: ${escape(answerText(q,s.answers[i]))}<br>Correct answer: ${escape(answerText(q,q.answer))}</p><p>${escape(q.explanation)}</p></details>`).join('')}</div>`}
+  `<div class="stat-row"><div class="stat"><strong>${score.correct}/${score.total}</strong><span>Correct</span></div><div class="stat"><strong>${score.total?Math.round(score.correct/score.total*100):0}%</strong><span>Accuracy</span></div><div class="stat"><strong>${s.stage===2?escape(chooseLevel(state.completed.find(x=>x.kind===s.kind&&x.stage===1))):'Medium'}</strong><span>Practice difficulty</span></div></div><div class="panel"><h3>What to work on</h3><p>${top.length?`Your biggest opportunities: ${top.map(([name,n])=>`${escape(name)} (${n} missed)`).join(', ')}.`:reviewDetails.length?'No missed questions in this section—keep building consistency.':'Detailed review is available immediately after submitting a section.'}</p>${reviewDetails.length?s.questions.map((q,i)=>{const detail=reviewDetails[i]||{};return `<details class="review-item"><summary class="${detail.correct?'correct':'incorrect'}">${i+1}. ${detail.correct?'Correct':'Review'} · ${escape(q.topic)} — ${escape(q.prompt)}</summary><p>Your answer: ${escape(answerText(q,s.answers[i]))}<br>Correct answer: ${escape(answerText(q,detail.answer))}</p><p>${escape(detail.explanation)}</p></details>`;}).join(''):''}</div>`}
   <div class="btn-row"><button class="btn" data-action="continue">${next?`Continue to ${escape(next.label)}`:'View final results'}</button></div>`;
 }
 
@@ -96,29 +109,59 @@ function results() {
   if (!records.some(record=>record.id===state.id)) {records=mergeRecords(records,[makeRecord(state)]);saveHistory();save();}
   const scored=state.completed.filter(s=>s.kind!=='essay');
   const correct=scored.reduce((n,s)=>n+sectionScore(s).correct,0), total=scored.reduce((n,s)=>n+sectionScore(s).total,0);
-  mount.innerHTML=`<div class="eyebrow">Session complete</div><h1>Your practice review</h1><p class="muted">This is an unofficial practice summary, not a scaled GRE score. It has been added to your score history in this browser.</p><div class="stat-row"><div class="stat"><strong>${correct}/${total}</strong><span>Scored questions correct</span></div><div class="stat"><strong>${total?Math.round(correct/total*100):0}%</strong><span>Overall accuracy</span></div><div class="stat"><strong>${state.completed.length}</strong><span>Sections completed</span></div></div><div class="panel"><h3>Next session</h3><p>${escape(recommendation(state.completed))}</p></div><div class="summary-grid top-gap">${scored.map(s=>{const r=sectionScore(s);return `<div class="panel"><div class="question-type">${escape(s.kind)} · ${escape(s.stage===2?chooseLevel(state.completed.find(x=>x.kind===s.kind&&x.stage===1)):'medium')} difficulty</div><h3>${escape(s.label)}</h3><p>${r.correct} of ${r.total} correct</p></div>`}).join('')}</div>${state.completed.some(s=>s.kind==='essay')?'<p class="notice">Your essay was saved for self-review but was not automatically scored.</p>':''}<div class="btn-row"><button class="btn" data-action="history">View score history</button><button class="btn secondary" data-action="reset">Start a new session</button></div>`;
+  mount.innerHTML=`<div class="eyebrow">Session complete</div><h1>Your practice review</h1><p class="muted">This is an unofficial practice summary, not a scaled GRE score. Your raw result is saved in ${escape(user.name)}’s history on this browser.</p><div class="stat-row"><div class="stat"><strong>${correct}/${total}</strong><span>Scored questions correct</span></div><div class="stat"><strong>${total?Math.round(correct/total*100):0}%</strong><span>Overall accuracy</span></div><div class="stat"><strong>${state.completed.length}</strong><span>Sections completed</span></div></div><div class="panel"><h3>Next session</h3><p>${escape(recommendation(state.completed))}</p></div><div class="summary-grid top-gap">${scored.map(s=>{const r=sectionScore(s);return `<div class="panel"><div class="question-type">${escape(s.kind)} · ${escape(s.stage===2?chooseLevel(state.completed.find(x=>x.kind===s.kind&&x.stage===1)):'medium')} difficulty</div><h3>${escape(s.label)}</h3><p>${r.correct} of ${r.total} correct</p></div>`}).join('')}</div>${state.completed.some(s=>s.kind==='essay')?'<p class="notice">Your essay was saved for self-review but was not automatically scored.</p>':''}<div class="btn-row"><button class="btn" data-action="history">View score history</button><button class="btn secondary" data-action="reset">Start a new session</button></div>`;
 }
 
 function historyPage() {
-  const ordered=[...records].reverse();
-  const points=ordered.map((r,i)=>{const total=r.verbal.total+r.quant.total;return {x:ordered.length===1?50:5+i*90/(ordered.length-1),y:95-(total?100*(r.verbal.correct+r.quant.correct)/total:0)*.9};});
-  mount.innerHTML=`<div class="eyebrow">Your progress</div><h1>Score history</h1><p class="muted">Raw practice accuracy is saved only in this browser. It does not sync automatically between devices or represent an official GRE score.</p>${records.length?`<div class="panel"><h3>Overall accuracy over time</h3><svg class="history-chart" viewBox="0 0 100 100" role="img" aria-label="Practice accuracy trend"><line x1="5" y1="95" x2="95" y2="95" stroke="#c5d3d1"/><line x1="5" y1="5" x2="5" y2="95" stroke="#c5d3d1"/><polyline points="${points.map(p=>`${p.x},${p.y}`).join(' ')}" fill="none" stroke="#176b69" stroke-width="1.5"/>${points.map(p=>`<circle cx="${p.x}" cy="${p.y}" r="2" fill="#d6a052"/>`).join('')}</svg><p class="muted small">Sessions are plotted oldest to newest; higher points mean higher accuracy.</p></div><div class="panel top-gap"><h3>Past sessions</h3><div class="history-list">${records.map(r=>`<div class="history-row"><div><strong>${escape(new Date(r.completedAt).toLocaleDateString())}</strong><br><span class="muted small">${escape(modeName(r.mode))}</span></div><div><strong>${r.verbal.correct+r.quant.correct}/${r.verbal.total+r.quant.total}</strong><br><span class="muted small">Overall</span></div><div><strong>${accuracy(r.verbal)??'—'}${accuracy(r.verbal)==null?'':'%'}</strong><br><span class="muted small">Verbal</span></div><div><strong>${accuracy(r.quant)??'—'}${accuracy(r.quant)==null?'':'%'}</strong><br><span class="muted small">Quant</span></div><button class="btn ghost small" data-delete="${escape(r.id)}" aria-label="Delete session from ${escape(new Date(r.completedAt).toLocaleDateString())}">Delete</button></div>`).join('')}</div></div>`:'<div class="panel"><p>No completed sessions yet. Finish a diagnostic or practice test to see your progress here.</p></div>'}<div class="btn-row"><button class="btn" data-action="home">Back to practice</button><button class="btn secondary" data-action="export" ${records.length?'':'disabled'}>Export history</button><button class="btn ghost" data-action="import">Import history</button><input id="history-file" type="file" accept="application/json,.json" hidden></div><p class="muted small top-gap">Export a backup before clearing browser data. Import merges sessions by ID; the app never uploads your history.</p>`;
+  const scored=records.filter(r=>(r.ielts?.total || r.verbal.total+r.quant.total)>0);
+  const ordered=[...scored].reverse();
+  const measure=r=>r.ielts || {correct:r.verbal.correct+r.quant.correct,total:r.verbal.total+r.quant.total};
+  const points=ordered.map((r,i)=>({x:ordered.length===1?50:5+i*90/(ordered.length-1),y:95-100*measure(r).correct/measure(r).total*.9}));
+  mount.innerHTML=`<div class="eyebrow">${escape(user.name)}’s progress</div><h1>Score history</h1><p class="muted">GRE and IELTS raw results are saved separately for each profile in this browser. They are not official scaled scores or IELTS bands.</p>${records.length?`<div class="panel"><h3>Overall accuracy over time</h3>${points.length?`<svg class="history-chart" viewBox="0 0 100 100" role="img" aria-label="Practice accuracy trend"><line x1="5" y1="95" x2="95" y2="95" stroke="#c5d3d1"/><polyline points="${points.map(p=>`${p.x},${p.y}`).join(' ')}" fill="none" stroke="#176b69" stroke-width="1.5"/>${points.map(p=>`<circle cx="${p.x}" cy="${p.y}" r="2" fill="#d6a052"/>`).join('')}</svg>`:'<p>No scored sessions yet.</p>'}<p class="muted small">Scored sessions are plotted oldest to newest.</p></div><div class="panel top-gap"><h3>Past sessions</h3><div class="history-list">${records.map(r=>`<div class="history-row"><div><strong>${escape(new Date(r.completedAt).toLocaleDateString())}</strong><br><span class="muted small">${escape(modeName(r.mode))}</span></div><div><strong>${measure(r).total?`${measure(r).correct}/${measure(r).total}`:'Self-review'}</strong><br><span class="muted small">${r.ielts?'IELTS':'Overall'}</span></div><div><strong>${r.ielts?(accuracy(r.ielts)==null?'—':`${accuracy(r.ielts)}%`):`${accuracy(r.verbal)??'—'}${accuracy(r.verbal)==null?'':'%'}`}</strong><br><span class="muted small">${r.ielts?'Accuracy':'Verbal'}</span></div><div><strong>${r.ielts?(r.essayWords?`${r.essayWords} words`:'—'):`${accuracy(r.quant)??'—'}${accuracy(r.quant)==null?'':'%'}`}</strong><br><span class="muted small">${r.ielts?'Writing':'Quant'}</span></div><button class="btn ghost small" data-delete="${escape(r.id)}" aria-label="Delete session from ${escape(new Date(r.completedAt).toLocaleDateString())}">Delete</button></div>`).join('')}</div></div>`:'<div class="panel"><p>No completed sessions yet. Finish a practice test to see your progress here.</p></div>'}<div class="btn-row"><button class="btn" data-action="home">Back to test selection</button><button class="btn secondary" data-action="export" ${records.length?'':'disabled'}>Export history</button><button class="btn ghost" data-action="import">Import history</button>${localStorage.getItem(HISTORY)?'<button class="btn ghost" data-action="legacy">Import earlier browser history</button>':''}<input id="history-file" type="file" accept="application/json,.json" hidden></div><p class="muted small top-gap">Exports are backups. Imported sessions are added to this profile on this browser.</p>`;
 }
 
-function modeName(mode) {return ({full:'Full-length',noEssay:'Verbal + Quant',verbalOnly:'Verbal only',quantOnly:'Quant only',diagnostic:'Diagnostic',custom:'Custom practice'})[mode]||mode;}
+function modeName(mode) {return ({full:'GRE full-length',noEssay:'GRE Verbal + Quant',verbalOnly:'GRE Verbal only',quantOnly:'GRE Quant only',diagnostic:'GRE Diagnostic',custom:'GRE Custom practice','ielts-reading':'IELTS Reading','ielts-listening':'IELTS Listening','ielts-writing1':'IELTS Writing Task 1','ielts-writing2':'IELTS Writing Task 2'})[mode]||mode;}
 
 function render() {
+  const account=document.querySelector('#account');
+  if(account) account.innerHTML=user?`<span>${escape(user.name)}</span> <button class="account-button" id="sign-out">Sign out</button>`:'';
+  if (!accountReady) {mount.innerHTML='<div class="panel">Opening the studio…</div>';return;}
+  if (!user) {mount.innerHTML=`<div class="auth-card panel"><div class="eyebrow">Welcome to the studio</div><h1>GRE & IELTS Practice Studio</h1><p>Choose your profile and enter the publisher password to begin.</p><form id="login-form"><div class="field"><label for="login-user">Profile</label><select id="login-user" required><option value="mursalin">Mursalin</option><option value="ramisa">Ramisa</option></select></div><div class="field"><label for="login-password">Password</label><input id="login-password" type="password" inputmode="numeric" autocomplete="current-password" required></div><button class="btn" type="submit">Enter studio</button></form>${accountError?`<p class="incorrect small" role="alert">${escape(accountError)}</p>`:''}</div>`;return;}
+  const oldError=document.querySelector('#account-error');if(oldError)oldError.remove();
+  if (accountError) mount.insertAdjacentHTML('beforebegin',`<p class="notice" id="account-error" role="alert">${escape(accountError)}</p>`);
   if (state.screen==='exam' && remaining()===0) {finish();return;}
   if (state.screen==='exam') exam();
   else if (state.screen==='review') review();
   else if (state.screen==='results') results();
   else if (state.screen==='history') historyPage();
+  else if (state.screen==='gre') greHome();
+  else if (state.screen==='ielts') showIelts(mount,saveIeltsScore,()=>{state.screen='home';save();render();});
   else home();
 }
 
-mount.addEventListener('click',event=>{
+document.addEventListener('submit',async event=>{
+  if(event.target.id!=='login-form')return;
+  event.preventDefault();
+  try{
+    const response=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user:document.querySelector('#login-user').value,password:document.querySelector('#login-password').value})});
+    const result=await response.json();
+    if(!response.ok)throw Error(result.error||'Sign-in failed.');
+    await setUser(result.user,{afterLogin:true});
+  }catch(error){reportError(error);}
+});
+document.addEventListener('click',async event=>{
+  if(event.target.id==='sign-out'){try{await fetch('/api/logout',{method:'POST'});setUser(null);}catch(error){reportError(error);} }
+});
+
+async function saveIeltsScore(result) {
+  const now=new Date().toISOString();
+  const record={id:crypto.randomUUID(),mode:result.mode,startedAt:now,completedAt:now,verbal:{correct:0,total:0},quant:{correct:0,total:0},essayWords:result.words,ielts:{correct:result.correct,total:result.total}};
+  records=mergeRecords(records,[record]);saveHistory();
+}
+
+mount.addEventListener('click',async event=>{
   const button=event.target.closest('button'); if(!button) return;
-  if(button.dataset.delete){if(confirm('Delete this saved practice session? Export a backup first if you want to keep it.')){records=records.filter(record=>record.id!==button.dataset.delete);saveHistory();render();}return;}
+  if(button.dataset.delete){if(confirm('Delete this saved practice session from this profile?')){records=records.filter(record=>record.id!==button.dataset.delete);saveHistory();render();}return;}
   if(button.dataset.start) { if(state.current && !confirm('Start over and discard your current session?')) return;start(button.dataset.start);return; }
   if(button.dataset.jump!==undefined) {section().position=Number(button.dataset.jump);save();render();return;}
   switch(button.dataset.action) {
@@ -132,16 +175,19 @@ mount.addEventListener('click',event=>{
     case 'abandon':if(confirm('Abandon this session? Its unfinished results will not be saved to history.')){state={screen:'home',plan:[],completed:[],current:null,index:0,mode:null};save();render();}break;
     case 'home':state.screen='home';save();render();break;
     case 'history':state.screen='history';save();render();break;
+    case 'gre':state.screen='gre';save();render();break;
+    case 'ielts':state.screen='ielts';save();render();break;
     case 'export':{const blob=new Blob([JSON.stringify({format:'gre-practice-history-v1',records},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download='gre-practice-history.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);break;}
     case 'import':document.querySelector('#history-file').click();break;
+    case 'legacy':{try{const incoming=mergeRecords([],JSON.parse(localStorage.getItem(HISTORY)||'[]'));records=mergeRecords(records,incoming);saveHistory();render();}catch(error){reportError(error);}break;}
   }
 });
 mount.addEventListener('change',event=>{
-  if(event.target.id==='history-file') {const file=event.target.files?.[0];if(file) file.text().then(text=>{try{const parsed=JSON.parse(text);if(parsed.format!=='gre-practice-history-v1'||!Array.isArray(parsed.records)) throw Error('Invalid backup');records=mergeRecords(records,parsed.records);saveHistory();render();}catch{alert('This is not a valid GRE Practice Studio history backup.');}});return;}
+  if(event.target.id==='history-file') {const file=event.target.files?.[0];if(file) file.text().then(text=>{try{const parsed=JSON.parse(text);if(parsed.format!=='gre-practice-history-v1'||!Array.isArray(parsed.records)) throw Error('Invalid backup');records=mergeRecords(records,parsed.records);saveHistory();render();}catch(error){alert(`Could not import backup: ${error.message}`);}});return;}
   if(event.target.dataset.blank!==undefined&&state.current){const s=section(),blank=Number(event.target.dataset.blank);const old=s.answers[s.position]||[];old[blank]=Number(event.target.value);s.answers[s.position]=old;save();render();return;}
   if(event.target.name!=='answer'||!state.current)return;
   const s=section(),q=s.questions[s.position],value=Number(event.target.value);
-  if(Array.isArray(q.answer)) {const old=s.answers[s.position]||[];s.answers[s.position]=event.target.checked?[...old,value]:old.filter(x=>x!==value);}
+  if(q.multiple) {const old=s.answers[s.position]||[];s.answers[s.position]=event.target.checked?[...old,value]:old.filter(x=>x!==value);}
   else s.answers[s.position]=value;
   save();render();
 });
