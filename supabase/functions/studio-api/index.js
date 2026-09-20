@@ -80,7 +80,7 @@ async function registrationAllowed(request) {
 Deno.serve(async request => {
   const origin=request.headers.get('Origin');
   if(origin&&!allowedOrigins.has(origin))return response(null,403,{error:'Origin not allowed.'});
-  if(request.method==='OPTIONS')return new Response(null,{status:204,headers:{...(origin?{'Access-Control-Allow-Origin':origin,'Vary':'Origin'}:{}),'Access-Control-Allow-Methods':'GET,POST,DELETE,OPTIONS','Access-Control-Allow-Headers':'authorization,content-type','Access-Control-Max-Age':'600'}});
+  if(request.method==='OPTIONS')return new Response(null,{status:204,headers:{...(origin?{'Access-Control-Allow-Origin':origin,'Vary':'Origin'}:{}),'Access-Control-Allow-Methods':'GET,POST,PATCH,DELETE,OPTIONS','Access-Control-Allow-Headers':'authorization,content-type','Access-Control-Max-Age':'600'}});
   const path=new URL(request.url).pathname.replace(/^\/studio-api/,'');
   try {
     if(path==='/profiles'&&request.method==='GET') {
@@ -121,6 +121,19 @@ Deno.serve(async request => {
     if(!session)return response(origin,401,{error:'Sign in to this profile.'});
     if(path==='/session'&&request.method==='GET')return response(origin,200,{user:{id:session.id,name:session.name}});
     if(path==='/logout'&&request.method==='POST') {await sql`delete from studio.sessions where token_hash=${session.token_hash}`;return response(origin,200,{user:null});}
+    if(path==='/profile'&&request.method==='PATCH') {
+      const body=await bodyJson(request),name=profileName(body.name);
+      try {
+        const rows=await sql`update studio.profiles set name=${name},name_key=${name.toLocaleLowerCase()} where id=${session.id} returning id,name`;
+        return response(origin,200,{user:{id:rows[0].id,name:rows[0].name}});
+      } catch(error) {if(error.code==='23505')return response(origin,409,{error:'That profile name already exists.'});throw error;}
+    }
+    if(path==='/profile'&&request.method==='DELETE') {
+      const body=await bodyJson(request),profile=await profileById(session.id);
+      if(!secureEqual(await passwordHash(String(body.password||''),profile.password_salt),profile.password_hash))return response(origin,401,{error:'Current password is incorrect.'});
+      await sql`delete from studio.profiles where id=${session.id}`;
+      return response(origin,200,{deleted:true});
+    }
     if(path==='/password'&&request.method==='POST') {
       const body=await bodyJson(request),profile=await profileById(session.id),next=passwordFrom(body.newPassword);
       if(!secureEqual(await passwordHash(String(body.currentPassword||''),profile.password_salt),profile.password_hash))return response(origin,401,{error:'Current password is incorrect.'});

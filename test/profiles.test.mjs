@@ -10,8 +10,8 @@ test('profiles include built-in users and persist new names without a password',
   t.after(()=>rm(directory,{recursive:true,force:true}));
   const path=join(directory,'profiles.json');
   const store=await createProfileStore(path);
-  assert.deepEqual(store.list().map(profile=>profile.name),['Mursalin','Ramisa']);
-  assert.equal((await store.select({id:'mursalin'})).name,'Mursalin');
+  assert.deepEqual(store.list().map(profile=>profile.name),['Syed','Ramisa']);
+  assert.equal((await store.select({id:'mursalin'})).name,'Syed');
   const [first,duplicate]=await Promise.all([store.select({name:'  Iman   Ali  '}),store.select({name:'iman ali'})]);
   assert.equal(first.id,duplicate.id);
   assert.equal(first.name,'Iman Ali');

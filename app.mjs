@@ -165,16 +165,16 @@ function modeName(mode) {return ({full:'GRE full-length',noEssay:'GRE Verbal + Q
 
 function profileGate() {
   const passwordField=(id,label,autocomplete)=>`<div class="field"><label for="${id}">${label}</label><input id="${id}" type="password" minlength="4" maxlength="128" autocomplete="${autocomplete}" required></div>`;
-  mount.innerHTML=`<div class="auth-card panel"><div class="eyebrow">Welcome to the studio</div><h1>GRE & IELTS Practice Studio</h1><p>${pagesMode?'Choose your profile and enter its password. Scores sync across your devices.':'Choose an existing profile or add your name to begin. No password is needed.'}</p><div class="profile-forms"><form id="select-profile-form"><h2>Existing profile</h2><div class="field"><label for="profile-select">Choose a name</label><select id="profile-select" required><option value="">Select a profile</option>${profiles.map(profile=>`<option value="${escape(profile.id)}">${escape(profile.name)}</option>`).join('')}</select></div>${pagesMode?`${passwordField('profile-password','Password','current-password')}<div class="field"><label for="profile-code">One-time setup code (first sign-in only)</label><input id="profile-code" type="text" autocomplete="off" spellcheck="false" placeholder="Enter your setup code if needed"></div><p class="muted small">Mursalin and Ramisa use their setup codes once to choose a password.</p>`:''}<button class="btn" type="submit">${pagesMode?'Sign in':'Continue'}</button></form><form id="create-profile-form"><h2>New profile</h2><div class="field"><label for="profile-name">Your name</label><input id="profile-name" type="text" maxlength="40" autocomplete="name" placeholder="Enter your name" required></div>${pagesMode?passwordField('new-profile-password','Create password','new-password'):''}<button class="btn secondary" type="submit">Add profile & continue</button></form></div>${accountError?`<p class="incorrect small" role="alert">${escape(accountError)}</p>`:''}<p class="muted small profile-note">${pagesMode?'Each profile has its own password. Completed scores sync; unfinished test work stays in this browser.':'Profiles are shared, but score history stays in this browser under the selected name.'}</p></div>`;
+  mount.innerHTML=`<div class="auth-card panel"><div class="eyebrow">Welcome to the studio</div><h1>GRE & IELTS Practice Studio</h1><p>${pagesMode?'Choose your profile and enter its password. Scores sync across your devices.':'Choose an existing profile or add your name to begin. No password is needed.'}</p><div class="profile-forms"><form id="select-profile-form"><h2>Existing profile</h2><div class="field"><label for="profile-select">Choose a name</label><select id="profile-select" required><option value="">Select a profile</option>${profiles.map(profile=>`<option value="${escape(profile.id)}">${escape(profile.name)}</option>`).join('')}</select></div>${pagesMode?`${passwordField('profile-password','Password','current-password')}<div class="field"><label for="profile-code">One-time setup code (first sign-in only)</label><input id="profile-code" type="text" autocomplete="off" spellcheck="false" placeholder="Enter your setup code if needed"></div><p class="muted small">A setup code is needed only if the profile has not set a password yet.</p>`:''}<button class="btn" type="submit">${pagesMode?'Sign in':'Continue'}</button></form><form id="create-profile-form"><h2>New profile</h2><div class="field"><label for="profile-name">Your name</label><input id="profile-name" type="text" maxlength="40" autocomplete="name" placeholder="Enter your name" required></div>${pagesMode?passwordField('new-profile-password','Create password','new-password'):''}<button class="btn secondary" type="submit">Add profile & continue</button></form></div>${accountError?`<p class="incorrect small" role="alert">${escape(accountError)}</p>`:''}<p class="muted small profile-note">${pagesMode?'Each profile has its own password. Completed scores sync; unfinished test work stays in this browser.':'Profiles are shared, but score history stays in this browser under the selected name.'}</p></div>`;
 }
 
-function passwordPage() {
-  mount.innerHTML=`<div class="eyebrow">${escape(user.name)}’s profile</div><h1>Change password</h1><div class="panel"><form id="change-password-form"><div class="field"><label for="current-password">Current password</label><input id="current-password" type="password" autocomplete="current-password" required></div><div class="field"><label for="next-password">New password</label><input id="next-password" type="password" minlength="4" maxlength="128" autocomplete="new-password" required></div><div class="field"><label for="confirm-password">Confirm new password</label><input id="confirm-password" type="password" minlength="4" maxlength="128" autocomplete="new-password" required></div><div class="btn-row"><button class="btn" type="submit">Update password</button><button class="btn secondary" type="button" data-action="home">Cancel</button></div></form></div><p class="muted small top-gap">Changing your password signs out other devices. You will need the new password to sign in again.</p>`;
+function accountPage() {
+  mount.innerHTML=`<div class="eyebrow">${escape(user.name)}’s profile</div><h1>Account settings</h1><div class="panel"><h2>Change profile name</h2><form id="rename-profile-form"><div class="field"><label for="rename-profile-name">Profile name</label><input id="rename-profile-name" type="text" maxlength="40" value="${escape(user.name)}" required></div><button class="btn" type="submit">Save name</button></form></div><div class="panel top-gap"><h2>Change password</h2><form id="change-password-form"><div class="field"><label for="current-password">Current password</label><input id="current-password" type="password" autocomplete="current-password" required></div><div class="field"><label for="next-password">New password</label><input id="next-password" type="password" minlength="4" maxlength="128" autocomplete="new-password" required></div><div class="field"><label for="confirm-password">Confirm new password</label><input id="confirm-password" type="password" minlength="4" maxlength="128" autocomplete="new-password" required></div><button class="btn" type="submit">Update password</button></form><p class="muted small">Changing your password signs out other devices.</p></div><div class="panel top-gap"><h2>Delete profile</h2><p class="muted">Permanently deletes this profile and its synced score history on every device. This cannot be undone.</p><form id="delete-profile-form"><div class="field"><label for="delete-password">Current password to confirm deletion</label><input id="delete-password" type="password" autocomplete="current-password" required></div><button class="btn danger" type="submit">Delete my profile</button></form></div><div class="btn-row"><button class="btn secondary" data-action="home">Back to practice</button></div>`;
 }
 
 function render() {
   const account=document.querySelector('#account');
-  if(account) account.innerHTML=user?`<span>${escape(user.name)}</span> ${pagesMode?'<button class="account-button" id="change-password">Change password</button>':''} <button class="account-button" id="switch-profile">Switch profile</button>`:'';
+  if(account) account.innerHTML=user?`<span>${escape(user.name)}</span> ${pagesMode?'<button class="account-button" id="account-settings">Account settings</button>':''} <button class="account-button" id="switch-profile">Switch profile</button>`:'';
   if (!accountReady) {mount.innerHTML='<div class="panel">Opening the studio…</div>';return;}
   if (!user) {profileGate();return;}
   const oldError=document.querySelector('#account-error');if(oldError)oldError.remove();
@@ -184,18 +184,35 @@ function render() {
   else if (state.screen==='review') review();
   else if (state.screen==='results') results();
   else if (state.screen==='history') historyPage();
-  else if (state.screen==='password') passwordPage();
+  else if (state.screen==='account'||state.screen==='password') accountPage();
   else if (state.screen==='gre') greHome();
   else if (state.screen==='ielts') showIelts(mount,saveIeltsScore,()=>{state.screen='home';save();render();},api,pagesMode);
   else home();
 }
 
 document.addEventListener('submit',async event=>{
+  if(event.target.id==='rename-profile-form'){
+    event.preventDefault();
+    try{const result=await api('/api/profile',{method:'PATCH',body:JSON.stringify({name:document.querySelector('#rename-profile-name').value})});user=result.user;profiles=result.profiles;accountError='';render();}catch(error){reportError(error);}
+    return;
+  }
+  if(event.target.id==='delete-profile-form'){
+    event.preventDefault();
+    const name=user.name,password=document.querySelector('#delete-password').value;
+    if(!confirm(`Permanently delete ${name} and all synced scores? This cannot be undone.`))return;
+    try{
+      const id=user.id,result=await api('/api/profile',{method:'DELETE',body:JSON.stringify({password})});
+      for(const key of [STORAGE,HISTORY,MIGRATED,PENDING])localStorage.removeItem(`${key}:${id}`);
+      profiles=result.profiles;
+      await setUser(null);
+    }catch(error){reportError(error);}
+    return;
+  }
   if(event.target.id==='change-password-form'){
     event.preventDefault();
     const currentPassword=document.querySelector('#current-password').value,newPassword=document.querySelector('#next-password').value,confirmation=document.querySelector('#confirm-password').value;
     if(newPassword!==confirmation){reportError(Error('New passwords do not match.'));return;}
-    try{await api('/api/password',{method:'POST',body:JSON.stringify({currentPassword,newPassword})});state.screen='home';accountError='';save();render();}catch(error){reportError(error);}
+    try{await api('/api/password',{method:'POST',body:JSON.stringify({currentPassword,newPassword})});state.screen='account';accountError='';save();render();}catch(error){reportError(error);}
     return;
   }
   if(!['select-profile-form','create-profile-form'].includes(event.target.id))return;
@@ -209,7 +226,7 @@ document.addEventListener('submit',async event=>{
 });
 document.addEventListener('click',async event=>{
   if(event.target.id==='switch-profile'){try{await api('/api/logout',{method:'POST'});await setUser(null);}catch(error){reportError(error);} }
-  if(event.target.id==='change-password'){state.screen='password';save();render();}
+  if(event.target.id==='account-settings'){state.screen='account';save();render();}
 });
 
 async function saveIeltsScore(result) {

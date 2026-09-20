@@ -1,5 +1,5 @@
 export const defaultProfiles = [
-  {id:'mursalin',name:'Mursalin'},
+  {id:'mursalin',name:'Syed'},
   {id:'ramisa',name:'Ramisa'}
 ];
 

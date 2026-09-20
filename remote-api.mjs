@@ -43,6 +43,18 @@ export function createRemoteApi(storage, request=fetch) {
       finally {storage.removeItem(tokenKey);user=null;}
       return {user:null};
     }
+    if(route==='/api/profile'&&options.method==='PATCH') {
+      const result=await call('/profile',options);
+      user=result.user;
+      profiles=profiles.map(profile=>profile.id===user.id?{...profile,name:user.name}:profile);
+      return {...result,profiles};
+    }
+    if(route==='/api/profile'&&options.method==='DELETE') {
+      const result=await call('/profile',options),id=user?.id;
+      storage.removeItem(tokenKey);user=null;
+      profiles=profiles.filter(profile=>profile.id!==id);
+      return {...result,user:null,profiles};
+    }
     if(route==='/api/history'&&(!options.method||options.method==='GET'))return call('/history');
     if(route==='/api/history'&&options.method==='POST')return call('/history',options);
     if(route.startsWith('/api/history/')&&options.method==='DELETE')return call(`/history/${encodeURIComponent(decodeURIComponent(route.slice('/api/history/'.length)))}`,options);

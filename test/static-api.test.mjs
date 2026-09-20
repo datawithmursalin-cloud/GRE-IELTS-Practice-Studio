@@ -10,7 +10,7 @@ const post=(api,path,payload)=>api(path,{method:'POST',body:JSON.stringify(paylo
 
 test('public profiles include both built-in names and persist added names',async()=>{
   const memory=storage(),api=createStaticApi(memory);
-  assert.deepEqual((await api('/api/profiles')).profiles.map(profile=>profile.name),['Mursalin','Ramisa']);
+  assert.deepEqual((await api('/api/profiles')).profiles.map(profile=>profile.name),['Syed','Ramisa']);
   const ramisa=(await post(api,'/api/profile',{id:'ramisa'})).user;
   assert.equal(ramisa.name,'Ramisa');
   assert.equal((await api('/api/session')).user.id,'ramisa');

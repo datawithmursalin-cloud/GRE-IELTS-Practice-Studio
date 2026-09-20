@@ -57,5 +57,5 @@ alter table studio.registration_attempts enable row level security;
 revoke all on studio.registration_attempts from public, anon, authenticated, service_role;
 
 insert into studio.profiles (id, name, name_key)
-values ('mursalin', 'Mursalin', 'mursalin'), ('ramisa', 'Ramisa', 'ramisa')
+values ('mursalin', 'Syed', 'syed'), ('ramisa', 'Ramisa', 'ramisa')
 on conflict (id) do nothing;
