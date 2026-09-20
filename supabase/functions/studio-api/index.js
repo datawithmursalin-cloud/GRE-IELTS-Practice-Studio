@@ -25,7 +25,7 @@ async function passwordHash(password,salt) {
   const bits=await crypto.subtle.deriveBits({name:'PBKDF2',hash:'SHA-256',salt:base64ToBytes(salt),iterations:600000},key,256);
   return bytesToBase64(new Uint8Array(bits));
 }
-function passwordFrom(value) {if(typeof value!=='string'||value.length<10||value.length>128)throw Error('Use a password of 10–128 characters.');return value;}
+function passwordFrom(value) {if(typeof value!=='string'||value.length<4||value.length>128)throw Error('Use a password of 4–128 characters.');return value;}
 function profileName(value) {
   if(typeof value!=='string')throw Error('Enter a profile name.');
   const name=value.normalize('NFKC').trim().replace(/\s+/g,' ');
