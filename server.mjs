@@ -1,17 +1,17 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
-import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { makePlan, makeQuestions, sectionScore, isAnswerCorrect } from './engine.mjs';
 import { addPrivateVerbal, addPrivateQuant } from './questions.mjs';
+import { createProfileStore } from './profiles.mjs';
 
 const root = process.cwd();
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || '127.0.0.1';
-const password = process.env.STUDIO_PASSWORD || (await readFile(resolve(root,'.studio-password'),'utf8').catch(()=>'')).trim();
-if (!password) throw Error('Set STUDIO_PASSWORD or create a local .studio-password file before starting the studio.');
-const users = new Map([['mursalin','Mursalin'],['ramisa','Ramisa']]);
+const profiles = await createProfileStore(resolve(root,'local-profiles.json'));
 const sessions = new Map();
+const greSessionsByProfile = new Map();
 const types = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json', '.svg': 'image/svg+xml' };
 const publicPaths = new Set(['/index.html','/styles.css','/enhancements.css','/app.mjs','/history.mjs','/ielts.mjs']);
 const ieltsPaths = Object.fromEntries(['reading','listening','writing1','writing2'].map((name,i)=>[name,resolve(root,`local-ielts/IELTS-Study-main/data/${['reading/exercises','listening/exercises','writing/task1','writing/task2'][i]}.json`)]));
@@ -27,10 +27,6 @@ try {const bank=JSON.parse(await readFile(privateQuantPath,'utf8'));if(bank.form
 const json = (response,status,data,headers={}) => response.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store',...headers}).end(JSON.stringify(data));
 const cookie = request => request.headers.cookie?.split(';').map(part=>part.trim()).find(part=>part.startsWith('studio_session='))?.slice(15);
 const session = request => {const token=cookie(request), active=token && sessions.get(token);if(!active || active.expires<Date.now()){if(token)sessions.delete(token);return null;}return active;};
-const passwordMatches = value => {
-  const a=Buffer.from(String(value||'')), b=Buffer.from(password);
-  return a.length===b.length && timingSafeEqual(a,b);
-};
 const bodyJson = async request => {let body='';for await(const chunk of request){body+=chunk;if(body.length>65536)throw Error('Request too large');}return JSON.parse(body);};
 const publicQuestion = q => {const {answer,explanation,origin,sourceId,...publicFields}=q;return {...publicFields,multiple:Array.isArray(answer)&&!q.blanks};};
 const gradeText = (expected,value) => {
@@ -40,21 +36,26 @@ const gradeText = (expected,value) => {
   return normalize(value)===normalize(expected);
 };
 const validModes = new Set(['full','noEssay','verbalOnly','quantOnly','diagnostic','custom']);
-const activeGre = (active,id) => active?.greSessions?.get(id);
+const profileGreSessions = active => {
+  const id=active.user.id;
+  if(!greSessionsByProfile.has(id))greSessionsByProfile.set(id,new Map());
+  return greSessionsByProfile.get(id);
+};
+const activeGre = (active,id) => active && profileGreSessions(active).get(id);
 
 createServer(async (request, response) => {
   const pathname = new URL(request.url, 'http://localhost').pathname;
   const route = pathname === '/' ? '/index.html' : pathname;
   if (route==='/api/session' && request.method==='GET') return json(response,200,{user:session(request)?.user||null});
-  if (route==='/api/login' && request.method==='POST') {
+  if (route==='/api/profiles' && request.method==='GET') return json(response,200,{profiles:profiles.list()});
+  if (route==='/api/profile' && request.method==='POST') {
     try {
-      const payload=await bodyJson(request), id=String(payload.user||'').toLowerCase();
-      if (!users.has(id) || !passwordMatches(payload.password)) return json(response,401,{error:'Invalid profile or password.'});
+      const payload=await bodyJson(request);
+      const user=await profiles.select(payload);
       const token=randomBytes(32).toString('hex');
-      const user={id,name:users.get(id)};
-      sessions.set(token,{user,expires:Date.now()+12*60*60*1000,greSessions:new Map()});
-      return json(response,200,{user},{'Set-Cookie':`studio_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200`});
-    } catch {return json(response,400,{error:'Invalid login request.'});}
+      sessions.set(token,{user,expires:Date.now()+12*60*60*1000});
+      return json(response,200,{user,profiles:profiles.list()},{'Set-Cookie':`studio_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200`});
+    } catch (error) {return json(response,400,{error:error.message||'Invalid profile request.'});}
   }
   if (route==='/api/logout' && request.method==='POST') {const token=cookie(request);if(token)sessions.delete(token);return json(response,200,{user:null},{'Set-Cookie':'studio_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'});}
   if (route.startsWith('/api/gre/') || route.startsWith('/api/ielts/')) {
@@ -65,7 +66,7 @@ createServer(async (request, response) => {
         const {mode,count}=await bodyJson(request);
         if(!validModes.has(mode))return json(response,400,{error:'Invalid test mode.'});
         const id=randomUUID(), plan=makePlan(mode,count);
-        active.greSessions.set(id,{plan,completed:[],sections:new Map()});
+        profileGreSessions(active).set(id,{plan,completed:[],sections:new Map()});
         return json(response,200,{id,plan});
       }
       if(route==='/api/gre/section' && request.method==='POST') {

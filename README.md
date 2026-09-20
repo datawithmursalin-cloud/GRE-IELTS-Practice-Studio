@@ -1,20 +1,19 @@
 # GRE & IELTS Practice Studio
 
-A combined, unofficial practice app. GRE uses original questions, timed sections, simple section-level difficulty routing and explanations. IELTS Reading and Listening use the locally extracted study archive for answer review and raw scores; Writing Tasks 1 and 2 provide prompts and model responses for self-review. The app has two profiles, Mursalin and Ramisa, and requires the publisher password before either can practice.
+A combined, unofficial practice app. GRE uses original questions, timed sections, simple section-level difficulty routing and explanations. IELTS Reading and Listening use the locally extracted study archive for answer review and raw scores; Writing Tasks 1 and 2 provide prompts and model responses for self-review. Mursalin and Ramisa are built-in profiles, and new participants can add a profile by entering their name. No password is required.
 
 ## Run locally
 
 Requires Node.js 20 or newer and the supplied IELTS archive for local IELTS content.
 
 1. The archive has been extracted to `local-ielts/IELTS-Study-main/`. This directory and the zip are Git-ignored because the included IELTS Liz content is not licensed for redistribution. If moving to another computer, extract `IELTS-Study-main.zip` to `local-ielts/` there.
-2. Set `STUDIO_PASSWORD` or create a `.studio-password` file containing the publisher password. The local file is Git-ignored.
-3. Run:
+2. Run:
 
 ```sh
 npm start
 ```
 
-Open <http://localhost:3000>. Select Mursalin or Ramisa and enter the publisher password. After login, choose GRE or IELTS. Run `npm test` for automated checks. The server listens on `127.0.0.1` by default, so it is accessible only from the same computer unless `HOST` is explicitly changed.
+Open <http://localhost:3000>. Select an existing profile or enter a new name, then choose GRE or IELTS. New names are saved in Git-ignored `local-profiles.json` and remain available after a server restart. Run `npm test` for automated checks. The server listens on `127.0.0.1` by default, so it is accessible only from the same computer unless `HOST` is explicitly changed.
 
 ## Test structure and question library
 
@@ -28,9 +27,9 @@ Current format checked against the ETS [test structure](https://www.ets.org/gre/
 
 ## Scores and privacy
 
-Each completed GRE session adds raw Verbal and Quant results; IELTS Reading and Listening add raw question accuracy, and Writing logs only a word count. These are not official scaled scores or bands. Score history and active GRE sessions are stored in separate browser-storage keys for Mursalin and Ramisa on this device. They do not sync between browsers or devices; clearing site data removes them unless you export a backup. Earlier GRE-only history in this browser can be imported from the history page. IELTS writing drafts disappear when you leave an exercise.
+Each completed GRE session adds raw Verbal and Quant results; IELTS Reading and Listening add raw question accuracy, and Writing logs only a word count. These are not official scaled scores or bands. Score history and active GRE sessions are stored in separate browser-storage keys for each profile on this device. They do not sync between browsers or devices; clearing site data removes them unless you export a backup. Earlier GRE-only history in this browser can be imported from the history page. IELTS writing drafts disappear when you leave an exercise.
 
-The shared four-digit password is a convenience gate, not strong individual authentication: either person who knows it can select either profile. Set it through `STUDIO_PASSWORD` or put it in a local `.studio-password` file, which is Git-ignored. Browser storage is accessible to someone with access to the same browser/device. Do not use this setup for sensitive information or expose the server to the public internet without stronger authentication and a server-side database. To add a user later, update the profile allowlist in `server.mjs` and the selector in `app.mjs`.
+Profiles are not authenticated. Anyone using the app can choose any profile name and, on the same browser, view or change that profile’s locally stored score history. Browser storage is accessible to someone with access to the same browser/device. Do not use this setup for sensitive information or expose the server to the public internet without authentication, abuse protection, and a server-side score database.
 
 ## Backend question bank and publication
 
@@ -40,6 +39,6 @@ For a public GitHub deployment, add only original questions or material with exp
 
 ## Hosting and content rights
 
-The local Node server handles the password session, serves individual exercises, and grades submissions. It does not expose raw bank files. This version does not work as a stand-alone GitHub Pages deployment. Do not publish the IELTS data, screenshots, linked media, or extracted Electron source without permission from the rights holders. A public deployment would need licensed content, stronger authentication, and server-side score storage.
+The local Node server manages selected-profile sessions, serves individual exercises, and grades submissions. It does not expose raw bank files. This version does not work as a stand-alone GitHub Pages deployment. Do not publish the IELTS data, screenshots, linked media, or extracted Electron source without permission from the rights holders. A public deployment would need licensed content, authentication, abuse protection, and server-side score storage.
 
 The books in `GRE Books/` were used only to check question types and topical coverage. Do not commit or redistribute their original questions or PDFs without permission. Several ETS books are older editions, so their timing and retired Argument essay descriptions should not override current ETS information. This tool is independent of ETS and the official IELTS organizations. The archive's `THIRD_PARTY_CONTENT.md` has more on IELTS Liz rights and attribution.

@@ -5,7 +5,7 @@ const mount = document.querySelector('#app');
 const STORAGE = 'gre-practice-studio-v1';
 const HISTORY = 'gre-practice-history-v1';
 const emptyState = () => ({screen:'home',plan:[],completed:[],current:null,index:0,mode:null});
-let state = emptyState(), records = [], user = null, accountReady = false, accountError = '', reviewDetails=[];
+let state = emptyState(), records = [], user = null, profiles = [], accountReady = false, accountError = '', reviewDetails=[];
 const sectionScore = s => s?.score || {correct:0,total:s?.questions?.length||0};
 const chooseLevel = s => s && sectionScore(s).total && sectionScore(s).correct/sectionScore(s).total>=.65?'hard':'medium';
 const recommendation = completed => {const scored=completed.filter(s=>s.kind!=='essay');const total=scored.reduce((n,s)=>n+sectionScore(s).total,0),correct=scored.reduce((n,s)=>n+sectionScore(s).correct,0);return !total?'Try a timed section to establish a baseline.':correct/total<.65?'Focus on missed topics, then try another timed section.':'Keep practicing under timed conditions to build consistency.';};
@@ -25,7 +25,7 @@ async function setUser(nextUser, {afterLogin=false}={}) {
   }
   render();
 }
-fetch('/api/session').then(response=>response.json()).then(data=>setUser(data.user)).catch(error=>{accountReady=true;reportError(error);});
+Promise.all([api('/api/session'),api('/api/profiles')]).then(([session,data])=>{profiles=data.profiles;setUser(session.user);}).catch(error=>{accountReady=true;reportError(error);});
 const section = () => state.current;
 const answerText = (q, chosen) => {
   if (chosen == null || Array.isArray(chosen) && !chosen.length) return 'Not answered';
@@ -124,9 +124,9 @@ function modeName(mode) {return ({full:'GRE full-length',noEssay:'GRE Verbal + Q
 
 function render() {
   const account=document.querySelector('#account');
-  if(account) account.innerHTML=user?`<span>${escape(user.name)}</span> <button class="account-button" id="sign-out">Sign out</button>`:'';
+  if(account) account.innerHTML=user?`<span>${escape(user.name)}</span> <button class="account-button" id="switch-profile">Switch profile</button>`:'';
   if (!accountReady) {mount.innerHTML='<div class="panel">Opening the studio…</div>';return;}
-  if (!user) {mount.innerHTML=`<div class="auth-card panel"><div class="eyebrow">Welcome to the studio</div><h1>GRE & IELTS Practice Studio</h1><p>Choose your profile and enter the publisher password to begin.</p><form id="login-form"><div class="field"><label for="login-user">Profile</label><select id="login-user" required><option value="mursalin">Mursalin</option><option value="ramisa">Ramisa</option></select></div><div class="field"><label for="login-password">Password</label><input id="login-password" type="password" inputmode="numeric" autocomplete="current-password" required></div><button class="btn" type="submit">Enter studio</button></form>${accountError?`<p class="incorrect small" role="alert">${escape(accountError)}</p>`:''}</div>`;return;}
+  if (!user) {mount.innerHTML=`<div class="auth-card panel"><div class="eyebrow">Welcome to the studio</div><h1>GRE & IELTS Practice Studio</h1><p>Choose an existing profile or add your name to begin. No password is needed.</p><div class="profile-forms"><form id="select-profile-form"><h2>Existing profile</h2><div class="field"><label for="profile-select">Choose a name</label><select id="profile-select" required><option value="">Select a profile</option>${profiles.map(profile=>`<option value="${escape(profile.id)}">${escape(profile.name)}</option>`).join('')}</select></div><button class="btn" type="submit">Continue</button></form><form id="create-profile-form"><h2>New profile</h2><div class="field"><label for="profile-name">Your name</label><input id="profile-name" type="text" maxlength="40" autocomplete="name" placeholder="Enter your name" required></div><button class="btn secondary" type="submit">Add profile & continue</button></form></div>${accountError?`<p class="incorrect small" role="alert">${escape(accountError)}</p>`:''}<p class="muted small profile-note">Profiles are shared, but score history stays in this browser under the selected name.</p></div>`;return;}
   const oldError=document.querySelector('#account-error');if(oldError)oldError.remove();
   if (accountError) mount.insertAdjacentHTML('beforebegin',`<p class="notice" id="account-error" role="alert">${escape(accountError)}</p>`);
   if (state.screen==='exam' && remaining()===0) {finish();return;}
@@ -140,17 +140,17 @@ function render() {
 }
 
 document.addEventListener('submit',async event=>{
-  if(event.target.id!=='login-form')return;
+  if(!['select-profile-form','create-profile-form'].includes(event.target.id))return;
   event.preventDefault();
   try{
-    const response=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user:document.querySelector('#login-user').value,password:document.querySelector('#login-password').value})});
-    const result=await response.json();
-    if(!response.ok)throw Error(result.error||'Sign-in failed.');
+    const payload=event.target.id==='select-profile-form'?{id:document.querySelector('#profile-select').value}:{name:document.querySelector('#profile-name').value};
+    const result=await api('/api/profile',{method:'POST',body:JSON.stringify(payload)});
+    profiles=result.profiles;
     await setUser(result.user,{afterLogin:true});
   }catch(error){reportError(error);}
 });
 document.addEventListener('click',async event=>{
-  if(event.target.id==='sign-out'){try{await fetch('/api/logout',{method:'POST'});setUser(null);}catch(error){reportError(error);} }
+  if(event.target.id==='switch-profile'){try{await api('/api/logout',{method:'POST'});await setUser(null);}catch(error){reportError(error);} }
 });
 
 async function saveIeltsScore(result) {
