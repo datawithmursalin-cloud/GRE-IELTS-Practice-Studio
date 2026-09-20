@@ -2,6 +2,12 @@
 
 A combined, unofficial practice app. GRE uses original questions, timed sections, simple section-level difficulty routing and explanations. IELTS Reading and Listening use the locally extracted study archive for answer review and raw scores; Writing Tasks 1 and 2 provide prompts and model responses for self-review. Mursalin and Ramisa are built-in profiles, and new participants can add a profile by entering their name. No password is required.
 
+## Public GitHub Pages edition
+
+The [public app](https://datawithmursalin-cloud.github.io/GRE-IELTS-Practice-Studio/) runs in the browser without the local Node server. Mursalin and Ramisa are built into that edition, so both names appear on any device. Choose one to take a GRE practice session or an IELTS exercise. The public IELTS set consists of a few original, short Reading, Listening and Writing exercises; Listening uses the browser's speech synthesis. It is not the larger local IELTS archive or a full IELTS mock test.
+
+Additional names, active GRE work, and score histories are saved in the browser on each device. They do **not** sync across phones or computers, and clearing browser data erases them. Selecting the same name on another device starts with an empty history there. Profiles are not secure accounts: anyone with access to that browser can select a name. The public GRE source and answers are downloadable as part of a static site, so this edition cannot keep its question bank secret. The private Manhattan Prep and IELTS Liz material is not published.
+
 ## Run locally
 
 Requires Node.js 20 or newer and the supplied IELTS archive for local IELTS content.
@@ -39,6 +45,6 @@ For a public GitHub deployment, add only original questions or material with exp
 
 ## Hosting and content rights
 
-The local Node server manages selected-profile sessions, serves individual exercises, and grades submissions. It does not expose raw bank files. This version does not work as a stand-alone GitHub Pages deployment. Do not publish the IELTS data, screenshots, linked media, or extracted Electron source without permission from the rights holders. A public deployment would need licensed content, authentication, abuse protection, and server-side score storage.
+The local Node server manages selected-profile sessions, serves individual exercises, and grades submissions. It does not expose raw private bank files. The GitHub Pages edition uses a smaller original-only question set and grades in the browser; it has no central server, shared score database, or authentication. Do not publish the IELTS archive, screenshots, linked media, or extracted Electron source without permission from the rights holders. A deployment with private question banks or cross-device scores would need a separate backend, appropriate content rights, authentication, and abuse protection.
 
 The books in `GRE Books/` were used only to check question types and topical coverage. Do not commit or redistribute their original questions or PDFs without permission. Several ETS books are older editions, so their timing and retired Argument essay descriptions should not override current ETS information. This tool is independent of ETS and the official IELTS organizations. The archive's `THIRD_PARTY_CONTENT.md` has more on IELTS Liz rights and attribution.

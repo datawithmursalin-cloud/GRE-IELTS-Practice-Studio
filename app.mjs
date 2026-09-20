@@ -2,6 +2,8 @@ import { makeRecord, mergeRecords, accuracy } from './history.mjs';
 import { showIelts } from './ielts.mjs';
 
 const mount = document.querySelector('#app');
+const pagesMode = location.hostname.endsWith('.github.io') || new URLSearchParams(location.search).has('static');
+const staticApi = pagesMode ? (await import('./static-api.mjs')).createStaticApi(localStorage) : null;
 const STORAGE = 'gre-practice-studio-v1';
 const HISTORY = 'gre-practice-history-v1';
 const emptyState = () => ({screen:'home',plan:[],completed:[],current:null,index:0,mode:null});
@@ -9,7 +11,7 @@ let state = emptyState(), records = [], user = null, profiles = [], accountReady
 const sectionScore = s => s?.score || {correct:0,total:s?.questions?.length||0};
 const chooseLevel = s => s && sectionScore(s).total && sectionScore(s).correct/sectionScore(s).total>=.65?'hard':'medium';
 const recommendation = completed => {const scored=completed.filter(s=>s.kind!=='essay');const total=scored.reduce((n,s)=>n+sectionScore(s).total,0),correct=scored.reduce((n,s)=>n+sectionScore(s).correct,0);return !total?'Try a timed section to establish a baseline.':correct/total<.65?'Focus on missed topics, then try another timed section.':'Keep practicing under timed conditions to build consistency.';};
-async function api(path, options={}) {const response=await fetch(path,{...options,headers:{'Content-Type':'application/json',...options.headers}});const data=await response.json();if(!response.ok)throw Error(data.error||'Practice request failed.');return data;}
+async function api(path, options={}) {if(staticApi)return staticApi(path,options);const response=await fetch(path,{...options,headers:{'Content-Type':'application/json',...options.headers}});const data=await response.json();if(!response.ok)throw Error(data.error||'Practice request failed.');return data;}
 
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const save = () => {if(user) localStorage.setItem(`${STORAGE}:${user.id}`, JSON.stringify(state));};
@@ -37,7 +39,7 @@ const timeText = seconds => `${Math.floor(seconds/60).toString().padStart(2,'0')
 const remaining = () => Math.max(0,Math.ceil((section().deadline - Date.now()) / 1000));
 
 function home() {
-  mount.innerHTML=`<div class="eyebrow">Welcome back, ${escape(user.name)}</div><h1>What are you preparing for?</h1><p class="muted">Choose a test to practice. Your score history is kept under your profile on this browser.</p><div class="exam-chooser"><article class="chooser-card gre"><div class="eyebrow">Graduate admissions</div><h2>GRE practice</h2><p>Timed Verbal and Quant sections, a full-length simulation, and detailed review.</p><button class="btn" data-action="gre">Choose GRE</button></article><article class="chooser-card ielts"><div class="eyebrow">English proficiency</div><h2>IELTS practice</h2><p>Reading, Listening, and Writing exercises from the local study archive.</p><button class="btn" data-action="ielts">Choose IELTS</button></article></div><div class="btn-row"><button class="btn secondary" data-action="history">View ${escape(user.name)}’s score history${records.length?` (${records.length})`:''}</button></div>`;
+  mount.innerHTML=`<div class="eyebrow">Welcome back, ${escape(user.name)}</div><h1>What are you preparing for?</h1><p class="muted">Choose a test to practice. Your score history is kept under your profile on this browser.</p><div class="exam-chooser"><article class="chooser-card gre"><div class="eyebrow">Graduate admissions</div><h2>GRE practice</h2><p>Timed Verbal and Quant sections, a full-length simulation, and detailed review.</p><button class="btn" data-action="gre">Choose GRE</button></article><article class="chooser-card ielts"><div class="eyebrow">English proficiency</div><h2>IELTS practice</h2><p>${pagesMode?'Original Reading, Listening, and Writing exercises.':'Reading, Listening, and Writing exercises from the local study archive.'}</p><button class="btn" data-action="ielts">Choose IELTS</button></article></div><div class="btn-row"><button class="btn secondary" data-action="history">View ${escape(user.name)}’s score history${records.length?` (${records.length})`:''}</button></div>`;
 }
 
 function greHome() {
@@ -126,7 +128,7 @@ function render() {
   const account=document.querySelector('#account');
   if(account) account.innerHTML=user?`<span>${escape(user.name)}</span> <button class="account-button" id="switch-profile">Switch profile</button>`:'';
   if (!accountReady) {mount.innerHTML='<div class="panel">Opening the studio…</div>';return;}
-  if (!user) {mount.innerHTML=`<div class="auth-card panel"><div class="eyebrow">Welcome to the studio</div><h1>GRE & IELTS Practice Studio</h1><p>Choose an existing profile or add your name to begin. No password is needed.</p><div class="profile-forms"><form id="select-profile-form"><h2>Existing profile</h2><div class="field"><label for="profile-select">Choose a name</label><select id="profile-select" required><option value="">Select a profile</option>${profiles.map(profile=>`<option value="${escape(profile.id)}">${escape(profile.name)}</option>`).join('')}</select></div><button class="btn" type="submit">Continue</button></form><form id="create-profile-form"><h2>New profile</h2><div class="field"><label for="profile-name">Your name</label><input id="profile-name" type="text" maxlength="40" autocomplete="name" placeholder="Enter your name" required></div><button class="btn secondary" type="submit">Add profile & continue</button></form></div>${accountError?`<p class="incorrect small" role="alert">${escape(accountError)}</p>`:''}<p class="muted small profile-note">Profiles are shared, but score history stays in this browser under the selected name.</p></div>`;return;}
+  if (!user) {mount.innerHTML=`<div class="auth-card panel"><div class="eyebrow">Welcome to the studio</div><h1>GRE & IELTS Practice Studio</h1><p>Choose an existing profile or add your name to begin. No password is needed.</p><div class="profile-forms"><form id="select-profile-form"><h2>Existing profile</h2><div class="field"><label for="profile-select">Choose a name</label><select id="profile-select" required><option value="">Select a profile</option>${profiles.map(profile=>`<option value="${escape(profile.id)}">${escape(profile.name)}</option>`).join('')}</select></div><button class="btn" type="submit">Continue</button></form><form id="create-profile-form"><h2>New profile</h2><div class="field"><label for="profile-name">Your name</label><input id="profile-name" type="text" maxlength="40" autocomplete="name" placeholder="Enter your name" required></div><button class="btn secondary" type="submit">Add profile & continue</button></form></div>${accountError?`<p class="incorrect small" role="alert">${escape(accountError)}</p>`:''}<p class="muted small profile-note">${pagesMode?'Mursalin and Ramisa appear for everyone. Additional names and all scores stay in this browser.':'Profiles are shared, but score history stays in this browser under the selected name.'}</p></div>`;return;}
   const oldError=document.querySelector('#account-error');if(oldError)oldError.remove();
   if (accountError) mount.insertAdjacentHTML('beforebegin',`<p class="notice" id="account-error" role="alert">${escape(accountError)}</p>`);
   if (state.screen==='exam' && remaining()===0) {finish();return;}
@@ -135,7 +137,7 @@ function render() {
   else if (state.screen==='results') results();
   else if (state.screen==='history') historyPage();
   else if (state.screen==='gre') greHome();
-  else if (state.screen==='ielts') showIelts(mount,saveIeltsScore,()=>{state.screen='home';save();render();});
+  else if (state.screen==='ielts') showIelts(mount,saveIeltsScore,()=>{state.screen='home';save();render();},api,pagesMode);
   else home();
 }
 
