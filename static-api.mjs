@@ -14,12 +14,13 @@ const gradeText=(expected,value)=>{
   return normalized(value)===normalized(expected);
 };
 
-export function createStaticApi(storage) {
-  const list=()=>{
+export function createStaticApi(storage, overrides={}) {
+  const localList=()=>{
     const extras=parse(storage.getItem(profilesKey),[]);
     return [...defaultProfiles,...(Array.isArray(extras)?extras:[]).filter(profile=>/^profile-[0-9a-f-]{36}$/.test(profile?.id)&&typeof profile.name==='string')];
   };
-  const selected=()=>list().find(profile=>profile.id===storage.getItem(selectedKey))||null;
+  const list=()=>overrides.getProfiles?.()||localList();
+  const selected=()=>overrides.getSelected?overrides.getSelected():list().find(profile=>profile.id===storage.getItem(selectedKey))||null;
   const requireProfile=()=>{const profile=selected();if(!profile)throw Error('Choose a profile to practice.');return profile;};
   const getTest=profile=>parse(storage.getItem(greKey(profile.id)),null);
   const putTest=(profile,test)=>storage.setItem(greKey(profile.id),JSON.stringify(test));

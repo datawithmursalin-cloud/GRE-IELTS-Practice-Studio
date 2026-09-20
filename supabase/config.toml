@@ -1,0 +1,3 @@
+# Login and registration use the function's own password/session checks.
+[functions.studio-api]
+verify_jwt = false
