@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {FULL_SECTIONS,makePlan,makeQuestions,makeVerbal,makeQuant,sectionScore,chooseLevel,isAnswerCorrect} from '../engine.mjs';
 import {makeRecord,mergeRecords,accuracy} from '../history.mjs';
+import { recordUsage } from '../question-usage.mjs';
 
 test('full-length plan follows current section counts and timing',()=>{
   assert.deepEqual(FULL_SECTIONS.map(s=>s.count),[1,12,12,15,15]);
@@ -30,6 +31,30 @@ test('full sections use distinct verbal and quant items',()=>{
   }
 });
 
+test('new GRE sessions prefer questions this profile has not seen',()=>{
+  let usage={};
+  const sessions=[];
+  for(let attempt=0;attempt<3;attempt++){
+    const completed=[];
+    for(const config of makePlan('diagnostic')){
+      const questions=makeQuestions(config,completed,()=>.4,usage);
+      usage=recordUsage(usage,questions.map(question=>question.id));
+      completed.push({...config,questions,answers:{}});
+    }
+    sessions.push(completed.flatMap(section=>section.questions.map(question=>question.id)));
+  }
+  assert.equal(new Set(sessions.flat()).size,30);
+  assert.ok(sessions[1].every(id=>!sessions[0].includes(id)));
+  assert.ok(sessions[2].every(id=>!sessions[0].includes(id)&&!sessions[1].includes(id)));
+});
+
+test('essay prompts rotate before repeating',()=>{
+  const config=makePlan('full')[0];
+  const first=makeQuestions(config,[],()=>.4,{});
+  const second=makeQuestions(config,[],()=>.4,recordUsage({},[first[0].id]));
+  assert.notEqual(first[0].id,second[0].id);
+});
+
 test('adaptive level responds to first-section accuracy',()=>{
   const questions=makeVerbal(12,'medium');
   assert.equal(chooseLevel({questions,answers:{}}),'easy');
@@ -47,6 +72,12 @@ test('generated quant answers match explanations and offer distinct options',()=
       assert.ok(isAnswerCorrect(q,q.answer));
     }
   }
+});
+
+test('generated quant variants have distinct question content',()=>{
+  const questions=makeQuant(299,'medium');
+  const fingerprints=questions.map(question=>JSON.stringify([question.prompt,question.passage,question.options]));
+  assert.equal(new Set(fingerprints).size,299);
 });
 
 test('question library covers current interaction types',()=>{

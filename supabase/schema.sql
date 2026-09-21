@@ -11,12 +11,14 @@ create table if not exists studio.profiles (
   password_salt text,
   password_hash text,
   claim_code_hash text,
+  is_admin boolean not null default false,
   created_at timestamptz not null default now(),
   check ((password_salt is null) = (password_hash is null)),
   check (length(name) between 1 and 40)
 );
 alter table studio.profiles enable row level security;
 revoke all on studio.profiles from public, anon, authenticated, service_role;
+alter table studio.profiles add column if not exists is_admin boolean not null default false;
 
 create table if not exists studio.sessions (
   token_hash text primary key,
@@ -40,6 +42,15 @@ create index if not exists studio_score_history_recent_idx on studio.score_histo
 alter table studio.score_history enable row level security;
 revoke all on studio.score_history from public, anon, authenticated, service_role;
 
+create table if not exists studio.question_usage (
+  profile_id text not null references studio.profiles(id) on delete cascade,
+  question_id text not null,
+  seen_count integer not null default 0 check (seen_count >= 0),
+  primary key (profile_id, question_id)
+);
+alter table studio.question_usage enable row level security;
+revoke all on studio.question_usage from public, anon, authenticated, service_role;
+
 create table if not exists studio.login_attempts (
   profile_id text primary key references studio.profiles(id) on delete cascade,
   failures integer not null default 0 check (failures >= 0),
@@ -59,3 +70,6 @@ revoke all on studio.registration_attempts from public, anon, authenticated, ser
 insert into studio.profiles (id, name, name_key)
 values ('mursalin', 'Syed', 'syed'), ('ramisa', 'Ramisa', 'ramisa')
 on conflict (id) do nothing;
+
+-- Grant only after the owner has claimed the profile with a password.
+update studio.profiles set is_admin = true where id = 'mursalin' and password_hash is not null;

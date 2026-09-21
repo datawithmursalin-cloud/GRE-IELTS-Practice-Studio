@@ -8,6 +8,14 @@ The [public app](https://datawithmursalin-cloud.github.io/GRE-IELTS-Practice-Stu
 
 Names and completed score histories sync across devices under each profile. Old browser-only scores are imported once when that profile first signs in on the same browser. Unfinished GRE work remains local to a browser and does not sync. Clearing site data removes the local session and unfinished work, but not the server-side completed history. The public IELTS set consists of a few original, short Reading, Listening and Writing exercises; Listening uses browser speech synthesis. It is not the larger local IELTS archive or a full IELTS mock test. The public GRE source and answers are downloadable as part of a static site, so this edition cannot keep its question bank secret. The private Manhattan Prep and IELTS Liz material is not published.
 
+### Admin profile
+
+The existing **Syed** profile (`mursalin`) is the administrator in the public edition. After signing in, choose **Manage profiles and scores** to see all other profiles, their saved-session counts, and each full synced score history. Removing a member requires the administrator's password and permanently deletes that member's profile, synced scores, and active sign-ins. The admin role is checked against the private database for every request; changing a browser value does not grant access. The local password-free edition has no admin controls.
+
+For an existing Supabase deployment, apply the updated `supabase/schema.sql` to the database before deploying the updated `studio-api` Edge Function, then publish the updated static files. The SQL adds `is_admin` and grants it to `mursalin` only if that profile already has a password; it does not reset the password. Ensure the Syed profile is controlled by the intended administrator before applying the grant. For a fresh database, claim and password-protect Syed first, then rerun the final `update studio.profiles` statement. Sign out and back in to show the admin button. No database credentials or passwords belong in this repository.
+
+Question usage is tracked per profile so new GRE sections favor questions seen least often and do not repeat a question within a test. The public edition syncs this usage across devices; the local edition saves it in the ignored `local-question-usage.json` file. IELTS exercise selection rotates among the available exercises in each category. Repeats eventually become necessary when a category's question pool is exhausted: the public bank has 43 Verbal items and only one Listening and one prompt for each Writing task.
+
 ## Run locally
 
 Requires Node.js 20 or newer and the supplied IELTS archive for local IELTS content.

@@ -1,10 +1,12 @@
 import { makePlan, makeQuestions, sectionScore, isAnswerCorrect } from './engine.mjs';
 import { defaultProfiles, normalizeProfileName } from './profile-common.mjs';
 import { publicIelts } from './public-ielts.mjs';
+import { leastUsed, mergeUsage, recordUsage } from './question-usage.mjs';
 
 const profilesKey='studio-public-profiles-v1';
 const selectedKey='studio-public-selected-v1';
 const greKey=id=>`studio-public-gre-v1:${id}`;
+const usageKey=id=>`studio-question-usage-v1:${id}`;
 const parse=(value,fallback)=>{try{return JSON.parse(value)||fallback;}catch{return fallback;}};
 const publicQuestion=question=>{const {answer,explanation,origin,sourceId,...fields}=question;return {...fields,multiple:Array.isArray(answer)&&!question.blanks};};
 const normalized=value=>String(value??'').trim().toLowerCase().replace(/\s+/g,' ').replace(/[.,]+$/,'');
@@ -24,6 +26,18 @@ export function createStaticApi(storage, overrides={}) {
   const requireProfile=()=>{const profile=selected();if(!profile)throw Error('Choose a profile to practice.');return profile;};
   const getTest=profile=>parse(storage.getItem(greKey(profile.id)),null);
   const putTest=(profile,test)=>storage.setItem(greKey(profile.id),JSON.stringify(test));
+  const usageFor=async profile=>{
+    const local=parse(storage.getItem(usageKey(profile.id)),{});
+    let remote={};
+    try{remote=await overrides.getUsage?.(profile)||{};}catch{}
+    const usage=mergeUsage(local,remote);
+    storage.setItem(usageKey(profile.id),JSON.stringify(usage));
+    return usage;
+  };
+  const markSeen=async(profile,usage,ids)=>{
+    storage.setItem(usageKey(profile.id),JSON.stringify(recordUsage(usage,ids)));
+    try{await overrides.recordSeen?.(profile,ids);}catch{}
+  };
   return async (path,options={})=>{
     const method=options.method||'GET';
     const payload=options.body?JSON.parse(options.body):{};
@@ -53,7 +67,7 @@ export function createStaticApi(storage, overrides={}) {
     if(route==='/api/gre/section'&&method==='POST'){
       const test=getTest(profile),index=payload.index;
       if(!test||payload.id!==test.id||!Number.isInteger(index)||index!==test.completed.length||!test.plan[index])throw Error('Practice session unavailable. Start a new test.');
-      if(!test.active){test.active={...test.plan[index],questions:makeQuestions(test.plan[index],test.completed)};putTest(profile,test);}
+      if(!test.active){const usage=await usageFor(profile);test.active={...test.plan[index],questions:makeQuestions(test.plan[index],test.completed,Math.random,usage)};putTest(profile,test);await markSeen(profile,usage,test.active.questions.map(question=>question.id));}
       return {...test.plan[index],questions:test.active.questions.map(publicQuestion)};
     }
     if(route==='/api/gre/submit'&&method==='POST'){
@@ -67,8 +81,10 @@ export function createStaticApi(storage, overrides={}) {
     }
     if(route==='/api/ielts/exercise'&&method==='GET'){
       const entries=publicIelts[url.searchParams.get('category')];
-      const item=url.searchParams.get('id')?entries?.find(entry=>entry.id===url.searchParams.get('id')):entries?.[Math.floor(Math.random()*entries.length)];
+      const usage=await usageFor(profile),selectedId=url.searchParams.get('id');
+      const item=selectedId?entries?.find(entry=>entry.id===selectedId):leastUsed(entries||[],usage,Math.random,entry=>`ielts:${url.searchParams.get('category')}:${entry.id}`)[0];
       if(!item)throw Error('Exercise unavailable.');
+      await markSeen(profile,usage,[`ielts:${url.searchParams.get('category')}:${item.id}`]);
       const {questions,transcript,model_answer,...fields}=item;
       return {...fields,audioText:transcript||'',questions:questions?.map(({answer,explanation,...question})=>({...question,optionValue:question.options?.length&&!/^[a-z]$/i.test(String(answer).trim())?'text':'letter'}))||[]};
     }

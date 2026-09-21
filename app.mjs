@@ -9,7 +9,7 @@ const HISTORY = 'gre-practice-history-v1';
 const MIGRATED = 'studio-score-migrated-v1';
 const PENDING = 'studio-score-pending-v1';
 const emptyState = () => ({screen:'home',plan:[],completed:[],current:null,index:0,mode:null});
-let state = emptyState(), records = [], user = null, profiles = [], accountReady = false, accountError = '', reviewDetails=[],syncedIds=new Set();
+let state = emptyState(), records = [], user = null, profiles = [], accountReady = false, accountError = '', reviewDetails=[],syncedIds=new Set(),adminProfiles=[],adminHistory=null,adminDeleteTarget=null;
 const sectionScore = s => s?.score || {correct:0,total:s?.questions?.length||0};
 const chooseLevel = s => s && sectionScore(s).total && sectionScore(s).correct/sectionScore(s).total>=.65?'hard':'medium';
 const recommendation = completed => {const scored=completed.filter(s=>s.kind!=='essay');const total=scored.reduce((n,s)=>n+sectionScore(s).total,0),correct=scored.reduce((n,s)=>n+sectionScore(s).correct,0);return !total?'Try a timed section to establish a baseline.':correct/total<.65?'Focus on missed topics, then try another timed section.':'Keep practicing under timed conditions to build consistency.';};
@@ -35,7 +35,7 @@ const saveHistory = async () => {
 };
 const reportError = error => {accountError=error?.message || String(error);if(state.screen!=='ielts')render();};
 async function setUser(nextUser, {afterLogin=false}={}) {
-  user=nextUser; accountReady=true;accountError='';records=[];syncedIds=new Set();state=emptyState();
+  user=nextUser; accountReady=true;accountError='';records=[];syncedIds=new Set();adminProfiles=[];adminHistory=null;adminDeleteTarget=null;state=emptyState();
   if(user){
     try{const saved=JSON.parse(localStorage.getItem(`${STORAGE}:${user.id}`)||'null');if(saved && Array.isArray(saved.plan) && ![saved.current,...(saved.completed||[])].some(s=>s?.questions?.some(q=>'answer' in q)))state=saved;else save();}catch{}
     try{records=mergeRecords([],JSON.parse(localStorage.getItem(`${HISTORY}:${user.id}`)||'[]'));}catch{}
@@ -52,7 +52,7 @@ async function setUser(nextUser, {afterLogin=false}={}) {
         localStorage.setItem(`${HISTORY}:${user.id}`,JSON.stringify(records));
       }catch(error){accountError=`Could not load synced scores: ${error.message}`;}
     }
-    if(state.screen==='library')state.screen='home';
+    if(state.screen==='library'||(state.screen==='admin'&&!user.isAdmin))state.screen='home';
     if(afterLogin){state.screen='home';save();}
   }
   render();
@@ -77,7 +77,7 @@ const timeText = seconds => `${Math.floor(seconds/60).toString().padStart(2,'0')
 const remaining = () => Math.max(0,Math.ceil((section().deadline - Date.now()) / 1000));
 
 function home() {
-  mount.innerHTML=`<div class="eyebrow">Welcome back, ${escape(user.name)}</div><h1>What are you preparing for?</h1><p class="muted">${pagesMode?'Choose a test to practice. Your completed scores sync under your password-protected profile.':'Choose a test to practice. Your score history is kept under your profile on this browser.'}</p><div class="exam-chooser"><article class="chooser-card gre"><div class="eyebrow">Graduate admissions</div><h2>GRE practice</h2><p>Timed Verbal and Quant sections, a full-length simulation, and detailed review.</p><button class="btn" data-action="gre">Choose GRE</button></article><article class="chooser-card ielts"><div class="eyebrow">English proficiency</div><h2>IELTS practice</h2><p>${pagesMode?'Original Reading, Listening, and Writing exercises.':'Reading, Listening, and Writing exercises from the local study archive.'}</p><button class="btn" data-action="ielts">Choose IELTS</button></article></div><div class="btn-row"><button class="btn secondary" data-action="history">View ${escape(user.name)}’s score history${records.length?` (${records.length})`:''}</button></div>`;
+  mount.innerHTML=`<div class="eyebrow">Welcome back, ${escape(user.name)}</div><h1>What are you preparing for?</h1><p class="muted">${pagesMode?'Choose a test to practice. Your completed scores sync under your password-protected profile.':'Choose a test to practice. Your score history is kept under your profile on this browser.'}</p><div class="exam-chooser"><article class="chooser-card gre"><div class="eyebrow">Graduate admissions</div><h2>GRE practice</h2><p>Timed Verbal and Quant sections, a full-length simulation, and detailed review.</p><button class="btn" data-action="gre">Choose GRE</button></article><article class="chooser-card ielts"><div class="eyebrow">English proficiency</div><h2>IELTS practice</h2><p>${pagesMode?'Original Reading, Listening, and Writing exercises.':'Reading, Listening, and Writing exercises from the local study archive.'}</p><button class="btn" data-action="ielts">Choose IELTS</button></article></div><div class="btn-row"><button class="btn secondary" data-action="history">View ${escape(user.name)}’s score history${records.length?` (${records.length})`:''}</button>${pagesMode&&user.isAdmin?'<button class="btn secondary" data-action="admin">Manage profiles and scores</button>':''}</div>`;
 }
 
 function greHome() {
@@ -163,6 +163,17 @@ function historyPage() {
 
 function modeName(mode) {return ({full:'GRE full-length',noEssay:'GRE Verbal + Quant',verbalOnly:'GRE Verbal only',quantOnly:'GRE Quant only',diagnostic:'GRE Diagnostic',custom:'GRE Custom practice','ielts-reading':'IELTS Reading','ielts-listening':'IELTS Listening','ielts-writing1':'IELTS Writing Task 1','ielts-writing2':'IELTS Writing Task 2'})[mode]||mode;}
 
+function adminPage() {
+  if(!pagesMode||!user?.isAdmin){state.screen='home';home();return;}
+  const selected=adminHistory;
+  const detail=selected?`<div class="panel top-gap"><h2>${escape(selected.profile.name)}’s history</h2>${selected.records.length?`<div class="history-list">${selected.records.map(record=>{
+    const measure=record.ielts||{correct:record.verbal.correct+record.quant.correct,total:record.verbal.total+record.quant.total};
+    return `<div class="history-row"><div><strong>${escape(new Date(record.completedAt).toLocaleDateString())}</strong><br><span class="muted small">${escape(modeName(record.mode))}</span></div><div><strong>${measure.total?`${measure.correct}/${measure.total}`:'Self-review'}</strong><br><span class="muted small">${record.ielts?'IELTS':'Overall'}</span></div><div><strong>${accuracy(record.verbal)==null?'—':`${accuracy(record.verbal)}%`}</strong><br><span class="muted small">Verbal</span></div><div><strong>${accuracy(record.quant)==null?'—':`${accuracy(record.quant)}%`}</strong><br><span class="muted small">Quant</span></div><span>${record.ielts&&measure.total?`${accuracy(measure)}% IELTS`:record.essayWords?`${escape(record.essayWords)} words`:''}</span></div>`;
+  }).join('')}</div>`:'<p>No completed sessions.</p>'}</div>`:'';
+  const removal=adminDeleteTarget?`<div class="panel top-gap"><h2>Remove ${escape(adminDeleteTarget.name)}?</h2><p class="muted">This permanently deletes this profile, every synced score, and its active sign-ins.</p><form id="admin-delete-form"><div class="field"><label for="admin-delete-password">Your admin password</label><input id="admin-delete-password" type="password" autocomplete="current-password" required></div><div class="btn-row"><button class="btn danger" type="submit">Permanently remove profile</button><button class="btn secondary" type="button" data-action="admin-cancel">Cancel</button></div></form></div>`:'';
+  mount.innerHTML=`<div class="eyebrow">Administrator</div><h1>Profiles and scores</h1><p class="muted">View each member’s synced practice history or remove a profile and its scores.</p><div class="panel"><h2>Other profiles</h2>${adminProfiles.length?`<div class="history-list">${adminProfiles.map(profile=>`<div class="history-row"><div><strong>${escape(profile.name)}</strong><br><span class="muted small">Joined ${escape(new Date(profile.createdAt).toLocaleDateString())}</span></div><div><strong>${profile.scoreCount}</strong><br><span class="muted small">saved sessions</span></div><div><span class="muted small">${profile.lastScoreAt?`Last score ${escape(new Date(profile.lastScoreAt).toLocaleDateString())}`:'No scores yet'}</span></div><button class="btn ghost small" data-admin-view="${escape(profile.id)}">View history</button><button class="btn danger small" data-admin-delete="${escape(profile.id)}">Remove</button></div>`).join('')}</div>`:'<p>No other profiles yet.</p>'}</div>${removal}${detail}<div class="btn-row"><button class="btn secondary" data-action="home">Back to practice</button></div>`;
+}
+
 function profileGate() {
   const passwordField=(id,label,autocomplete)=>`<div class="field"><label for="${id}">${label}</label><input id="${id}" type="password" minlength="4" maxlength="128" autocomplete="${autocomplete}" required></div>`;
   mount.innerHTML=`<div class="auth-card panel"><div class="eyebrow">Welcome to the studio</div><h1>GRE & IELTS Practice Studio</h1><p>${pagesMode?'Choose your profile and enter its password. Scores sync across your devices.':'Choose an existing profile or add your name to begin. No password is needed.'}</p><div class="profile-forms"><form id="select-profile-form"><h2>Existing profile</h2><div class="field"><label for="profile-select">Choose a name</label><select id="profile-select" required><option value="">Select a profile</option>${profiles.map(profile=>`<option value="${escape(profile.id)}">${escape(profile.name)}</option>`).join('')}</select></div>${pagesMode?passwordField('profile-password','Password','current-password'):''}<button class="btn" type="submit">${pagesMode?'Sign in':'Continue'}</button></form><form id="create-profile-form"><h2>New profile</h2><div class="field"><label for="profile-name">Your name</label><input id="profile-name" type="text" maxlength="40" autocomplete="name" placeholder="Enter your name" required></div>${pagesMode?passwordField('new-profile-password','Create password','new-password'):''}<button class="btn secondary" type="submit">Add profile & continue</button></form></div>${accountError?`<p class="incorrect small" role="alert">${escape(accountError)}</p>`:''}<p class="muted small profile-note">${pagesMode?'Each profile has its own password. Completed scores sync; unfinished test work stays in this browser.':'Profiles are shared, but score history stays in this browser under the selected name.'}</p></div>`;
@@ -184,6 +195,7 @@ function render() {
   else if (state.screen==='review') review();
   else if (state.screen==='results') results();
   else if (state.screen==='history') historyPage();
+  else if (state.screen==='admin') adminPage();
   else if (state.screen==='account'||state.screen==='password') accountPage();
   else if (state.screen==='gre') greHome();
   else if (state.screen==='ielts') showIelts(mount,saveIeltsScore,()=>{state.screen='home';save();render();},api,pagesMode);
@@ -191,6 +203,20 @@ function render() {
 }
 
 document.addEventListener('submit',async event=>{
+  if(event.target.id==='admin-delete-form'){
+    event.preventDefault();
+    if(!adminDeleteTarget||!user?.isAdmin)return;
+    const target=adminDeleteTarget;
+    if(!confirm(`Permanently remove ${target.name} and all synced scores?`))return;
+    try{
+      await api(`/api/admin/profiles/${encodeURIComponent(target.id)}`,{method:'DELETE',body:JSON.stringify({password:document.querySelector('#admin-delete-password').value})});
+      adminProfiles=(await api('/api/admin/profiles')).profiles;
+      profiles=(await api('/api/profiles')).profiles;
+      if(adminHistory?.profile.id===target.id)adminHistory=null;
+      adminDeleteTarget=null;accountError='';render();
+    }catch(error){reportError(error);}
+    return;
+  }
   if(event.target.id==='rename-profile-form'){
     event.preventDefault();
     try{const result=await api('/api/profile',{method:'PATCH',body:JSON.stringify({name:document.querySelector('#rename-profile-name').value})});user=result.user;profiles=result.profiles;accountError='';render();}catch(error){reportError(error);}
@@ -237,6 +263,8 @@ async function saveIeltsScore(result) {
 
 mount.addEventListener('click',async event=>{
   const button=event.target.closest('button'); if(!button) return;
+  if(button.dataset.adminView){try{adminHistory=await api(`/api/admin/profiles/${encodeURIComponent(button.dataset.adminView)}/history`);adminDeleteTarget=null;render();}catch(error){reportError(error);}return;}
+  if(button.dataset.adminDelete){adminDeleteTarget=adminProfiles.find(profile=>profile.id===button.dataset.adminDelete)||null;render();return;}
   if(button.dataset.delete){if(confirm('Delete this saved practice session from this profile?')){try{if(pagesMode)await api(`/api/history/${encodeURIComponent(button.dataset.delete)}`,{method:'DELETE'});records=records.filter(record=>record.id!==button.dataset.delete);syncedIds.delete(button.dataset.delete);if(pagesMode){const pending=mergeRecords([],JSON.parse(localStorage.getItem(`${PENDING}:${user.id}`)||'[]')).filter(record=>record.id!==button.dataset.delete);localStorage.setItem(`${PENDING}:${user.id}`,JSON.stringify(pending));}await saveHistory();render();}catch(error){reportError(error);}}return;}
   if(button.dataset.start) { if(state.current && !confirm('Start over and discard your current session?')) return;start(button.dataset.start);return; }
   if(button.dataset.jump!==undefined) {section().position=Number(button.dataset.jump);save();render();return;}
@@ -251,6 +279,8 @@ mount.addEventListener('click',async event=>{
     case 'abandon':if(confirm('Abandon this session? Its unfinished results will not be saved to history.')){state={screen:'home',plan:[],completed:[],current:null,index:0,mode:null};save();render();}break;
     case 'home':state.screen='home';save();render();break;
     case 'history':try{await refreshHistory();}catch(error){reportError(error);}state.screen='history';save();render();break;
+    case 'admin':if(pagesMode&&user?.isAdmin){try{adminProfiles=(await api('/api/admin/profiles')).profiles;adminHistory=null;adminDeleteTarget=null;state.screen='admin';save();render();}catch(error){reportError(error);}}break;
+    case 'admin-cancel':adminDeleteTarget=null;render();break;
     case 'gre':state.screen='gre';save();render();break;
     case 'ielts':state.screen='ielts';save();render();break;
     case 'export':{const blob=new Blob([JSON.stringify({format:'gre-practice-history-v1',records},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download='gre-practice-history.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);break;}

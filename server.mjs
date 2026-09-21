@@ -1,15 +1,27 @@
 import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile, rename } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { makePlan, makeQuestions, sectionScore, isAnswerCorrect } from './engine.mjs';
 import { addPrivateVerbal, addPrivateQuant } from './questions.mjs';
 import { createProfileStore } from './profiles.mjs';
+import { leastUsed, normalizeUsage, recordUsage } from './question-usage.mjs';
 
 const root = process.cwd();
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || '127.0.0.1';
 const profiles = await createProfileStore(resolve(root,'local-profiles.json'));
+const usagePath=resolve(root,'local-question-usage.json');
+let usageByProfile={};
+try{usageByProfile=JSON.parse(await readFile(usagePath,'utf8'));}catch{}
+let usageWrite=Promise.resolve();
+const usageFor=profileId=>normalizeUsage(usageByProfile[profileId]);
+const markSeen=(profileId,ids)=>{
+  usageByProfile[profileId]=recordUsage(usageFor(profileId),ids);
+  const data=JSON.stringify(usageByProfile);
+  usageWrite=usageWrite.catch(()=>{}).then(async()=>{await writeFile(`${usagePath}.tmp`,data);await rename(`${usagePath}.tmp`,usagePath);});
+  return usageWrite;
+};
 const sessions = new Map();
 const greSessionsByProfile = new Map();
 const types = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json', '.svg': 'image/svg+xml' };
@@ -72,7 +84,11 @@ createServer(async (request, response) => {
       if(route==='/api/gre/section' && request.method==='POST') {
         const {id,index}=await bodyJson(request), test=activeGre(active,id);
         if(!test || !Number.isInteger(index) || index!==test.completed.length || !test.plan[index])return json(response,400,{error:'Practice session unavailable. Start a new test.'});
-        if(!test.sections.has(index))test.sections.set(index,{...test.plan[index],questions:makeQuestions(test.plan[index],test.completed)});
+        if(!test.sections.has(index)){
+          const section={...test.plan[index],questions:makeQuestions(test.plan[index],test.completed,Math.random,usageFor(active.user.id))};
+          test.sections.set(index,section);
+          await markSeen(active.user.id,section.questions.map(question=>question.id));
+        }
         const section=test.sections.get(index);
         return json(response,200,{...test.plan[index],questions:section.questions.map(publicQuestion)});
       }
@@ -87,8 +103,9 @@ createServer(async (request, response) => {
       }
       if(route==='/api/ielts/exercise' && request.method==='GET') {
         const params=new URL(request.url,'http://localhost').searchParams,kind=params.get('category'),id=params.get('id');
-        const entries=ieltsData[kind],item=id?entries?.find((entry,i)=>(entry.id||String(i))===id):entries?.[Math.floor(Math.random()*entries.length)];
+        const entries=ieltsData[kind],item=id?entries?.find((entry,i)=>(entry.id||String(i))===id):leastUsed(entries||[],usageFor(active.user.id),Math.random,entry=>`ielts:${kind}:${entry.id||String(entries.indexOf(entry))}`)[0];
         if(!item)return json(response,404,{error:'Exercise not found.'});
+        await markSeen(active.user.id,[`ielts:${kind}:${item.id||String(entries.indexOf(item))}`]);
         const {questions,transcript,model_answer,key_vocab,key_phrases,...publicFields}=item;
         return json(response,200,{...publicFields,id:item.id||String(entries.indexOf(item)),questions:questions?.map(q=>{const {answer,explanation,...fields}=q;return {...fields,optionValue:q.options?.length && !/^[a-z]$/i.test(String(answer).trim())?'text':'letter'};})||[]});
       }

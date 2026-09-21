@@ -57,3 +57,45 @@ test('a signed-in profile can rename and delete itself',async()=>{
   assert.equal(memory.getItem('studio-sync-token-v1'),null);
   await assert.rejects(post(api,'/api/gre/start',{mode:'diagnostic'}),/Choose a profile/);
 });
+
+test('admin requests carry the session token and preserve authorization errors',async()=>{
+  const calls=[];
+  const request=async(url,options={})=>{
+    const path=new URL(url).pathname.split('/studio-api')[1];calls.push({path,options});
+    if(path==='/admin/profiles')return {ok:true,json:async()=>({profiles:[{id:'ramisa',name:'Ramisa',scoreCount:2}]})};
+    if(path==='/admin/profiles/ramisa/history')return {ok:true,json:async()=>({profile:{id:'ramisa',name:'Ramisa'},records:[{id:'score-1'}]})};
+    if(path==='/admin/profiles/ramisa'&&options.method==='DELETE')return {ok:false,json:async()=>({error:'Admin access required.'})};
+    return {ok:false,json:async()=>({error:'Not found.'})};
+  };
+  const memory=storage();memory.setItem('studio-sync-token-v1','studio_admin');
+  const api=createRemoteApi(memory,request);
+  assert.equal((await api('/api/admin/profiles')).profiles[0].scoreCount,2);
+  assert.equal((await api('/api/admin/profiles/ramisa/history')).records[0].id,'score-1');
+  await assert.rejects(api('/api/admin/profiles/ramisa',{method:'DELETE',body:JSON.stringify({password:'secret'})}),/Admin access required/);
+  assert.deepEqual(calls.map(call=>call.path),['/admin/profiles','/admin/profiles/ramisa/history','/admin/profiles/ramisa']);
+  assert.ok(calls.every(call=>call.options.headers.Authorization==='Bearer studio_admin'));
+});
+
+test('question usage sync prevents repeats across devices',async()=>{
+  const seen={};
+  const request=async(url,options={})=>{
+    const path=new URL(url).pathname.split('/studio-api')[1];
+    if(path==='/session')return {ok:true,json:async()=>({user:{id:'mursalin',name:'Syed'}})};
+    if(path==='/question-usage'){
+      if(options.method==='POST')for(const id of JSON.parse(options.body).ids)seen[id]=(seen[id]||0)+1;
+      return {ok:true,json:async()=>options.method==='POST'?{saved:1}:{usage:{...seen}}};
+    }
+    return {ok:false,json:async()=>({error:'Not found.'})};
+  };
+  const firstStorage=storage(),secondStorage=storage();
+  firstStorage.setItem('studio-sync-token-v1','studio_first');
+  secondStorage.setItem('studio-sync-token-v1','studio_second');
+  const first=createRemoteApi(firstStorage,request),second=createRemoteApi(secondStorage,request);
+  await first('/api/session');await second('/api/session');
+  const firstTest=await post(first,'/api/gre/start',{mode:'diagnostic'});
+  const firstSection=await post(first,'/api/gre/section',{id:firstTest.id,index:0});
+  const secondTest=await post(second,'/api/gre/start',{mode:'diagnostic'});
+  const secondSection=await post(second,'/api/gre/section',{id:secondTest.id,index:0});
+  const firstIds=new Set(firstSection.questions.map(question=>question.id));
+  assert.ok(secondSection.questions.every(question=>!firstIds.has(question.id)));
+});

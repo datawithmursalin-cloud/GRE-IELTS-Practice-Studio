@@ -41,6 +41,20 @@ test('public GRE test can be completed and resumed per profile',async()=>{
   assert.equal(second.questions.length,5);
 });
 
+test('public question usage persists across tests and rotates IELTS reading',async()=>{
+  const memory=storage(),api=createStaticApi(memory);
+  await post(api,'/api/profile',{id:'mursalin'});
+  const first=await post(api,'/api/gre/start',{mode:'diagnostic'});
+  const firstSection=await post(api,'/api/gre/section',{id:first.id,index:0});
+  const second=await post(api,'/api/gre/start',{mode:'diagnostic'});
+  const secondSection=await post(createStaticApi(memory),'/api/gre/section',{id:second.id,index:0});
+  const firstIds=new Set(firstSection.questions.map(question=>question.id));
+  assert.ok(secondSection.questions.every(question=>!firstIds.has(question.id)));
+  const reading1=await api('/api/ielts/exercise?category=reading');
+  const reading2=await api('/api/ielts/exercise?category=reading');
+  assert.notEqual(reading1.id,reading2.id);
+});
+
 test('public IELTS exercises grade without exposing answers before submission',async()=>{
   const api=createStaticApi(storage());
   await post(api,'/api/profile',{id:'ramisa'});

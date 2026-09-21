@@ -1,4 +1,5 @@
 import { verbal, issues, privateQuant } from './questions.mjs';
+import { leastUsed } from './question-usage.mjs';
 
 export const FULL_SECTIONS = [
   {kind:'essay',label:'Analytical Writing',minutes:30,count:1},
@@ -66,17 +67,18 @@ function shuffle(items, random = Math.random) {
   return a;
 }
 
-export function makeVerbal(count, level, used = [], random = Math.random) {
+export function makeVerbal(count, level, used = [], random = Math.random, usage = {}) {
   const available = verbal.filter(q => !used.includes(verbal.indexOf(q)));
   const order = [level, 'medium', 'easy', 'hard'].filter((v,i,a) => a.indexOf(v) === i);
-  const preferred = kind => order.flatMap(l => shuffle(available.filter(q => q.level === l && q.type === kind), random));
+  const rank=items=>leastUsed(items,usage,random,q=>`v${verbal.indexOf(q)}`).sort((a,b)=>(usage[`v${verbal.indexOf(a)}`]||0)-(usage[`v${verbal.indexOf(b)}`]||0)||order.indexOf(a.level)-order.indexOf(b.level));
+  const preferred = kind => rank(available.filter(q => q.type === kind));
   const rcCount = Math.round(count * .45), tcCount = Math.round(count * .3);
   const picks = [
     ...preferred('Reading comprehension').slice(0,rcCount),
     ...preferred('Text completion').slice(0,tcCount),
     ...preferred('Sentence equivalence').slice(0,count-rcCount-tcCount)
   ];
-  const remainder = order.flatMap(l => shuffle(available.filter(q => q.level === l && !picks.includes(q)),random));
+  const remainder = rank(available.filter(q => !picks.includes(q)));
   return shuffle([...picks,...remainder.slice(0,count-picks.length)],random).map(q => ({...q,id:`v${verbal.indexOf(q)}`}));
 }
 
@@ -88,17 +90,23 @@ function options(answer, step = 1) {
 
 const comparisonOptions = ['Quantity A is greater','Quantity B is greater','The two quantities are equal','The relationship cannot be determined'];
 
-export function makeQuant(count, level = 'medium', used = [], random = Math.random) {
+export function makeQuant(count, level = 'medium', used = [], random = Math.random, usage = {}) {
   const availableBook = privateQuant.map((q,i)=>({...q,id:`bq${i}`})).filter(q=>!used.includes(q.id));
   const bookCount = Math.min(availableBook.length,Math.ceil(count*(level==='medium'?.5:.25)));
-  const bookQuestions = shuffle(availableBook,random).slice(0,bookCount);
+  const bookQuestions = leastUsed(availableBook,usage,random).slice(0,bookCount);
   const made = [];
-  let n = 1;
-  while (made.length < count-bookCount && n < 300) {
+  const numbers=Array.from({length:299},(_,i)=>i+1).filter(n=>!used.includes(`q${n}`));
+  const buckets=Array.from({length:8},(_,pattern)=>leastUsed(numbers.filter(n=>n%8===pattern),usage,random,n=>`q${n}`));
+  const candidates=[];
+  const patternOrder=shuffle(Array.from({length:8},(_,i)=>i),random);
+  for(let round=0;round<Math.max(...buckets.map(bucket=>bucket.length));round++)
+    for(const pattern of patternOrder)if(buckets[pattern][round]!=null)candidates.push(buckets[pattern][round]);
+  candidates.sort((a,b)=>(usage[`q${a}`]||0)-(usage[`q${b}`]||0));
+  for (const n of candidates) {
+    if(made.length>=count-bookCount)break;
     const id = `q${n}`;
-    if (!used.includes(id)) {
       const d = level === 'hard' ? 3 : level === 'easy' ? 1 : 2;
-      const a = 3 + n % 9, b = 2 + (n * 3) % 7;
+      const a = 3 + n % 9 + Math.floor((n-1)/72)*9, b = 2 + (n * 3) % 7 + Math.floor((n-1)/72)*3;
       let q;
       switch (n % 8) {
         case 0: {
@@ -129,7 +137,8 @@ export function makeQuant(count, level = 'medium', used = [], random = Math.rand
         }
         case 5: {
           const divisor = 2 + n % 3;
-          const values = [divisor,divisor+1,divisor*2,divisor*2+1,divisor*3,divisor*3+2];
+          const offset=Math.floor((n-1)/24)*divisor*3;
+          const values = [divisor,divisor+1,divisor*2,divisor*2+1,divisor*3,divisor*3+2].map(value=>value+offset);
           q = {type:'Multiple choice · Select all that apply',topic:'Arithmetic',prompt:`Which of the following numbers are divisible by ${divisor}? Select ALL that apply.`,options:values.map(String),answer:values.flatMap((value,i)=>value%divisor===0?[i]:[]),explanation:`A number is divisible by ${divisor} when the division leaves no remainder.`};
           break;
         }
@@ -144,18 +153,19 @@ export function makeQuant(count, level = 'medium', used = [], random = Math.rand
         }
       }
       made.push({...q,id,level});
-    }
-    n++;
   }
   return shuffle([...made,...bookQuestions], random);
 }
 
-export function makeQuestions(section, history = [], random = Math.random) {
-  if (section.kind === 'essay') return [{id:'essay',type:'Analyze an Issue',prompt:issues[Math.floor(random()*issues.length)]}];
+export function makeQuestions(section, history = [], random = Math.random, usage = {}) {
+  if (section.kind === 'essay') {
+    const index=leastUsed(Array.from(issues.keys()),usage,random,i=>`essay${i}`)[0];
+    return [{id:`essay${index}`,type:'Analyze an Issue',prompt:issues[index]}];
+  }
   const first = history.find(s => s.kind === section.kind && s.stage === 1);
   const level = section.stage === 2 ? chooseLevel(first) : 'medium';
   const used = history.filter(s => s.kind === section.kind).flatMap(s => (s.questions || []).map(q => q.id));
-  return section.kind === 'verbal' ? makeVerbal(section.count,level,used.map(id => Number(id.slice(1))),random) : makeQuant(section.count,level,used,random);
+  return section.kind === 'verbal' ? makeVerbal(section.count,level,used.map(id => Number(id.slice(1))),random,usage) : makeQuant(section.count,level,used,random,usage);
 }
 
 export function recommendation(sections) {

@@ -7,7 +7,7 @@ const tokenKey='studio-sync-token-v1';
 
 export function createRemoteApi(storage, request=fetch) {
   let user=null,profiles=[];
-  const practice=createStaticApi(storage,{getProfiles:()=>profiles,getSelected:()=>user});
+  const practice=createStaticApi(storage,{getProfiles:()=>profiles,getSelected:()=>user,getUsage:async()=> (await call('/question-usage')).usage,recordSeen:async(_profile,ids)=>call('/question-usage',{method:'POST',body:JSON.stringify({ids})})});
   async function call(path,options={}) {
     const token=storage.getItem(tokenKey);
     let response;
@@ -58,6 +58,10 @@ export function createRemoteApi(storage, request=fetch) {
     if(route==='/api/history'&&(!options.method||options.method==='GET'))return call('/history');
     if(route==='/api/history'&&options.method==='POST')return call('/history',options);
     if(route.startsWith('/api/history/')&&options.method==='DELETE')return call(`/history/${encodeURIComponent(decodeURIComponent(route.slice('/api/history/'.length)))}`,options);
+    if(route==='/api/admin/profiles'&&(!options.method||options.method==='GET'))return call('/admin/profiles');
+    const adminMatch=route.match(/^\/api\/admin\/profiles\/(profile-[0-9a-f-]{36}|mursalin|ramisa)(\/history)?$/);
+    if(adminMatch&&((adminMatch[2]&&!options.method)||(!adminMatch[2]&&options.method==='DELETE')))
+      return call(`/admin/profiles/${adminMatch[1]}${adminMatch[2]||''}`,options);
     if(route==='/api/password'&&options.method==='POST') {
       const result=await call('/password',options);
       storage.setItem(tokenKey,result.token);user=result.user;
